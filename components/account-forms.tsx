@@ -7,6 +7,7 @@ import {
   updateProfile,
 } from "@/app/(app)/cuenta/actions";
 import { FormMessage } from "@/components/form-message";
+import { LeadDataTransfer } from "@/components/lead-data-transfer";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -169,6 +170,8 @@ export function AccountForms({
           </form>
         </CardContent>
       </Card>
+
+      <LeadDataTransfer />
     </div>
   );
 }

@@ -17,6 +17,8 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BulkDeleteLeadsDialog } from "@/components/bulk-delete-leads-dialog";
+import { BulkEditLeadsDialog } from "@/components/bulk-edit-leads-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
@@ -88,6 +90,10 @@ export function LeadsView({
   const [openId, setOpenId] = useState<number | null>(initialOpenId ?? null);
   const [editing, setEditing] = useState<LeadWithTags | null>(null);
   const [deleting, setDeleting] = useState<LeadWithTags | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Sincroniza ?open=<id> de la URL (p. ej. al llegar desde la paleta ⌘K).
   const [prevInitial, setPrevInitial] = useState(initialOpenId);
@@ -120,6 +126,36 @@ export function LeadsView({
 
   const openLead = openId != null ? leads.find((l) => l.id === openId) : null;
   const activeTag = tagFilter !== "all" ? tags.find((t) => t.id === tagFilter) : null;
+  const selectedCount = selectedIds.size;
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((lead) => selectedIds.has(lead.id));
+  const someFilteredSelected = filtered.some((lead) => selectedIds.has(lead.id));
+
+  const toggleLead = (id: number) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllFiltered = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allFilteredSelected) {
+        filtered.forEach((lead) => next.delete(lead.id));
+      } else {
+        filtered.forEach((lead) => next.add(lead.id));
+      }
+      return next;
+    });
+  };
+
+  const closeSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
 
   const closeSheet = () => {
     setOpenId(null);
@@ -195,6 +231,21 @@ export function LeadsView({
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {selectionMode ? (
+          <Button variant="outline" onClick={closeSelectionMode}>
+            Cancelar edición
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            onClick={() => setSelectionMode(true)}
+            disabled={filtered.length === 0}
+          >
+            <PencilIcon />
+            Editar varios
+          </Button>
+        )}
+
         {(statusFilter !== "all" || tagFilter !== "all" || search) && (
           <Button
             variant="ghost"
@@ -214,11 +265,55 @@ export function LeadsView({
         </span>
       </div>
 
+      {selectionMode && selectedCount > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2">
+          <span className="mr-auto text-sm font-medium">
+            {selectedCount} {selectedCount === 1 ? "lead seleccionado" : "leads seleccionados"}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+            Deseleccionar
+          </Button>
+          <Button size="sm" onClick={() => setBulkEditing(true)}>
+            <PencilIcon />
+            Editar
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setBulkDeleting(true)}
+          >
+            <Trash2Icon />
+            Eliminar
+          </Button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="pl-4">Negocio</TableHead>
+              {selectionMode && (
+                <TableHead className="w-10 pl-4">
+                  <input
+                    type="checkbox"
+                    role="checkbox"
+                    aria-label="Seleccionar todos los leads visibles"
+                    checked={allFilteredSelected}
+                    ref={(element) => {
+                      if (element) {
+                        element.indeterminate =
+                          someFilteredSelected && !allFilteredSelected;
+                      }
+                    }}
+                    onChange={toggleAllFiltered}
+                    disabled={filtered.length === 0}
+                    className="size-4 cursor-pointer accent-primary disabled:cursor-not-allowed"
+                  />
+                </TableHead>
+              )}
+              <TableHead className={selectionMode ? undefined : "pl-4"}>
+                Negocio
+              </TableHead>
               <TableHead className="hidden lg:table-cell">Etiquetas</TableHead>
               <TableHead className="hidden xl:table-cell">Notas</TableHead>
               <TableHead>Estado</TableHead>
@@ -230,7 +325,10 @@ export function LeadsView({
           <TableBody>
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center">
+                <TableCell
+                  colSpan={selectionMode ? 8 : 7}
+                  className="h-32 text-center"
+                >
                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
                     <span>No hay leads que coincidan.</span>
                     <Button size="sm" onClick={openNewLead}>
@@ -248,9 +346,27 @@ export function LeadsView({
                 <TableRow
                   key={lead.id}
                   className="cursor-pointer"
+                  data-state={selectedIds.has(lead.id) ? "selected" : undefined}
                   onClick={() => setOpenId(lead.id)}
                 >
-                  <TableCell className="max-w-56 pl-4">
+                  {selectionMode && (
+                    <TableCell
+                      className="w-10 pl-4"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        role="checkbox"
+                        aria-label={`Seleccionar ${lead.name}`}
+                        checked={selectedIds.has(lead.id)}
+                        onChange={() => toggleLead(lead.id)}
+                        className="size-4 cursor-pointer accent-primary"
+                      />
+                    </TableCell>
+                  )}
+                  <TableCell
+                    className={cn("max-w-56", !selectionMode && "pl-4")}
+                  >
                     <div className="truncate font-medium">{lead.name}</div>
                     {lead.instagram && (
                       <div className="truncate text-xs text-muted-foreground">
@@ -342,6 +458,21 @@ export function LeadsView({
         onClose={closeSheet}
         onEdit={(lead) => setEditing(lead)}
         onDelete={(lead) => setDeleting(lead)}
+      />
+
+      <BulkEditLeadsDialog
+        open={bulkEditing}
+        onOpenChange={setBulkEditing}
+        leadIds={[...selectedIds]}
+        allTags={tags}
+        onUpdated={closeSelectionMode}
+      />
+
+      <BulkDeleteLeadsDialog
+        open={bulkDeleting}
+        onOpenChange={setBulkDeleting}
+        leadIds={[...selectedIds]}
+        onDeleted={closeSelectionMode}
       />
 
       <LeadDialog
@@ -458,10 +589,12 @@ function LeadSheet({
                   href={mapsUrl(lead)}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:underline"
+                  className="inline-flex max-w-full min-w-0 items-center gap-1 hover:underline"
                 >
                   <MapPinIcon className="size-3 shrink-0" />
-                  {lead.address ?? "Ver en Maps"}
+                  <span className="truncate">
+                    {lead.address ?? "Ver en Maps"}
+                  </span>
                 </a>
               </InfoRow>
               <InfoRow label="Contacto">{formatDate(lead.contactDate)}</InfoRow>

@@ -9,6 +9,10 @@ import {
   MapPinIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  ContactDateNotice,
+  shouldShowContactDateNotice,
+} from "@/components/contact-date-notice";
 import { DateField } from "@/components/date-field";
 import { StatusDot } from "@/components/status-badge";
 import { TagPicker } from "@/components/tag-picker";
@@ -52,21 +56,6 @@ type FormState = {
   tags: Tag[];
 };
 
-const EMPTY: FormState = {
-  name: "",
-  instagram: "",
-  website: "",
-  phone: "",
-  address: "",
-  lat: null,
-  lng: null,
-  notes: "",
-  status: "por_contactar",
-  contactDate: "",
-  followUpDate: "",
-  tags: [],
-};
-
 function fromLead(lead: LeadWithTags): FormState {
   // Si solo hay "problema" antiguo, lo mostramos en notas.
   const notes =
@@ -81,16 +70,35 @@ function fromLead(lead: LeadWithTags): FormState {
     lng: lead.lng,
     notes,
     status: lead.status,
-    contactDate: lead.contactDate ?? "",
+    contactDate:
+      lead.contactDate ?? (lead.status !== "por_contactar" ? todayISO() : ""),
     followUpDate: lead.followUpDate ?? "",
     tags: lead.tags,
   };
 }
 
 function addDays(base: string, days: number): string {
-  const d = base ? new Date(`${base}T00:00:00`) : new Date();
-  d.setDate(d.getDate() + days);
+  const d = new Date(`${base || todayISO()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+function emptyForm(): FormState {
+  const today = todayISO();
+  return {
+    name: "",
+    instagram: "",
+    website: "",
+    phone: "",
+    address: "",
+    lat: null,
+    lng: null,
+    notes: "",
+    status: "por_contactar",
+    contactDate: today,
+    followUpDate: addDays(today, 7),
+    tags: [],
+  };
 }
 
 const STATUS_ITEMS = STATUSES.map((s) => ({ value: s.value, label: s.label }));
@@ -113,10 +121,11 @@ export function LeadDialog({
   allTags: Tag[];
   lead?: LeadWithTags | null;
 }) {
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [geoResults, setGeoResults] = useState<GeocodeResult[]>([]);
   const [geoLoading, setGeoLoading] = useState(false);
   const [advanced, setAdvanced] = useState(false);
+  const [showContactDateNotice, setShowContactDateNotice] = useState(false);
   const [saving, startSaving] = useTransition();
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -126,17 +135,15 @@ export function LeadDialog({
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open) {
-      setForm(lead ? fromLead(lead) : EMPTY);
+      setForm(lead ? fromLead(lead) : emptyForm());
       setGeoResults([]);
+      setShowContactDateNotice(false);
       setAdvanced(
         Boolean(
           lead &&
-            (lead.tags.length > 0 ||
-              lead.phone ||
+            (lead.phone ||
               lead.website ||
               lead.followUpDate ||
-              lead.notes ||
-              lead.problem ||
               (lead.status && lead.status !== "por_contactar"))
         )
       );
@@ -162,7 +169,8 @@ export function LeadDialog({
     setForm((f) => ({
       ...f,
       address: raw,
-      ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
     }));
   };
 
@@ -202,7 +210,7 @@ export function LeadDialog({
         problem: null,
         notes: form.notes,
         status: form.status,
-        contactDate: form.contactDate,
+        contactDate: form.status === "por_contactar" ? "" : form.contactDate,
         followUpDate: form.followUpDate,
         tagIds: form.tags.map((t) => t.id),
       });
@@ -214,9 +222,10 @@ export function LeadDialog({
 
       toast.success(isEdit ? "Lead actualizado" : `Lead «${form.name}» creado`);
       if (keepOpen) {
-        setForm(EMPTY);
+        setForm(emptyForm());
         setGeoResults([]);
         setAdvanced(false);
+        setShowContactDateNotice(false);
         nameRef.current?.focus();
       } else {
         onOpenChange(false);
@@ -352,11 +361,24 @@ export function LeadDialog({
           </div>
 
           <div className="grid gap-1.5">
-            <Label>Fecha de contacto</Label>
-            <DateField
-              value={form.contactDate}
-              onChange={(v) => set("contactDate", v)}
-              showTodayButton
+            <Label>Etiquetas</Label>
+            <TagPicker
+              allTags={allTags}
+              selected={form.tags}
+              onChange={(tags) => set("tags", tags)}
+            />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="lead-notes">Notas</Label>
+            <Textarea
+              id="lead-notes"
+              name="lead-notes"
+              rows={3}
+              value={form.notes}
+              onChange={(e) => set("notes", e.target.value)}
+              placeholder="Problema, ángulo de venta, próximos pasos…"
+              {...NO_AUTOCOMPLETE}
             />
           </div>
 
@@ -373,21 +395,12 @@ export function LeadDialog({
             />
             {advanced ? "Ocultar opciones avanzadas" : "Más opciones"}
             <span className="ml-auto text-xs opacity-70">
-              etiquetas, notas, follow-up…
+              teléfono, estado, fechas…
             </span>
           </button>
 
           {advanced && (
             <div className="grid gap-3.5 border-t pt-3.5">
-              <div className="grid gap-1.5">
-                <Label>Etiquetas</Label>
-                <TagPicker
-                  allTags={allTags}
-                  selected={form.tags}
-                  onChange={(tags) => set("tags", tags)}
-                />
-              </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label htmlFor="lead-phone">Teléfono</Label>
@@ -407,9 +420,23 @@ export function LeadDialog({
                     value={form.status}
                     onValueChange={(v) => {
                       if (typeof v !== "string") return;
-                      set("status", v);
-                      if (v !== "por_contactar" && !form.contactDate) {
-                        set("contactDate", todayISO());
+                      const changedToContacted =
+                        v === "contactado" && form.status !== "contactado";
+                      setForm((current) => ({
+                        ...current,
+                        status: v,
+                        contactDate:
+                          v === "por_contactar"
+                            ? ""
+                            : changedToContacted || !current.contactDate
+                              ? todayISO()
+                              : current.contactDate,
+                      }));
+                      if (
+                        changedToContacted &&
+                        shouldShowContactDateNotice()
+                      ) {
+                        setShowContactDateNotice(true);
                       }
                     }}
                   >
@@ -427,6 +454,22 @@ export function LeadDialog({
                   </Select>
                 </div>
               </div>
+
+              {form.status !== "por_contactar" && (
+                <div className="grid gap-1.5">
+                  <Label>Fecha de contacto</Label>
+                  <DateField
+                    value={form.contactDate}
+                    onChange={(v) => set("contactDate", v)}
+                  />
+                </div>
+              )}
+
+              {showContactDateNotice && (
+                <ContactDateNotice
+                  onDismiss={() => setShowContactDateNotice(false)}
+                />
+              )}
 
               <div className="grid gap-1.5">
                 <Label htmlFor="lead-website">Web / Linktree</Label>
@@ -462,18 +505,6 @@ export function LeadDialog({
                 </div>
               </div>
 
-              <div className="grid gap-1.5">
-                <Label htmlFor="lead-notes">Notas</Label>
-                <Textarea
-                  id="lead-notes"
-                  name="lead-notes"
-                  rows={3}
-                  value={form.notes}
-                  onChange={(e) => set("notes", e.target.value)}
-                  placeholder="Problema, ángulo de venta, próximos pasos…"
-                  {...NO_AUTOCOMPLETE}
-                />
-              </div>
             </div>
           )}
 

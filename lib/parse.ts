@@ -35,20 +35,73 @@ export function parseMapsCoordinates(
   const value = raw.trim();
   if (!value) return null;
 
-  const atMatch = value.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Algunos enlaces contienen porcentajes sin escapar; usamos el valor original.
+  }
+
+  const coordinate = (latValue: string, lngValue: string) => {
+    const lat = Number.parseFloat(latValue);
+    const lng = Number.parseFloat(lngValue);
+    return Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180
+      ? { lat, lng }
+      : null;
+  };
+
+  const number = "(-?\\d+(?:\\.\\d+)?)";
+
+  // Enlaces de lugares: las coordenadas del marcador son más precisas que
+  // las que aparecen tras @, que solo representan el centro del viewport.
+  const placeMatch = decoded.match(
+    new RegExp(`!3d${number}!4d${number}`, "i")
+  );
+  if (placeMatch) return coordinate(placeMatch[1], placeMatch[2]);
+
+  const embedMatch = decoded.match(
+    new RegExp(`!2d${number}!3d${number}`, "i")
+  );
+  if (embedMatch) return coordinate(embedMatch[2], embedMatch[1]);
+
+  const atMatch = decoded.match(new RegExp(`@${number},${number}`, "i"));
   if (atMatch) {
-    return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+    return coordinate(atMatch[1], atMatch[2]);
   }
 
-  const qMatch = value.match(/[?&](?:q|query)=(-?\d+\.\d+),(-?\d+\.\d+)/i);
+  const qMatch = decoded.match(
+    new RegExp(`[?&](?:q|query)=${number},${number}`, "i")
+  );
   if (qMatch) {
-    return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
+    return coordinate(qMatch[1], qMatch[2]);
   }
 
-  const llMatch = value.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/i);
+  const llMatch = decoded.match(
+    new RegExp(`[?&]ll=${number},${number}`, "i")
+  );
   if (llMatch) {
-    return { lat: parseFloat(llMatch[1]), lng: parseFloat(llMatch[2]) };
+    return coordinate(llMatch[1], llMatch[2]);
   }
 
   return null;
+}
+
+/** Indica si el valor es un enlace corto oficial de Google Maps. */
+export function isGoogleMapsShortUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw.trim());
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      (hostname === "maps.app.goo.gl" ||
+        (hostname === "goo.gl" && url.pathname.startsWith("/maps/")))
+    );
+  } catch {
+    return false;
+  }
 }

@@ -31,7 +31,7 @@ export default async function AccountPage() {
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-8">
       <PageHeader
         title="Cuenta"
-        subtitle="Gestiona tu identidad y la seguridad de acceso."
+        subtitle="Gestiona tu identidad, la seguridad de acceso y tus datos."
       >
         <form action={signOut}>
           <Button type="submit" variant="outline">

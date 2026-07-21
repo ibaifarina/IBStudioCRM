@@ -2,8 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { TAG_COLORS, isValidStatus } from "@/lib/config";
+import { resolveMapsCoordinates } from "@/lib/maps";
+import { isGoogleMapsShortUrl } from "@/lib/parse";
 import { createClient } from "@/lib/supabase/server";
-import type { GeocodeResult, LeadInput, Tag } from "@/lib/types";
+import type {
+  BulkLeadUpdate,
+  GeocodeResult,
+  LeadInput,
+  Tag,
+} from "@/lib/types";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -43,18 +50,45 @@ export async function saveLead(
   if (!name) return { error: "El nombre del negocio es obligatorio." };
   if (!isValidStatus(input.status)) return { error: "Estado no válido." };
 
-  const contactDate =
-    clean(input.contactDate) ??
-    (input.status !== "por_contactar" ? today() : null);
+  let contactDate =
+    input.status === "por_contactar"
+      ? null
+      : (clean(input.contactDate) ?? today());
+
+  if (input.id && input.status === "contactado") {
+    const { data: currentLead, error: readError } = await auth.supabase
+      .from("leads")
+      .select("status")
+      .eq("id", input.id)
+      .maybeSingle();
+
+    if (readError || !currentLead) {
+      return { error: "No se encontró el lead." };
+    }
+
+    if (currentLead.status !== "contactado") contactDate = today();
+  }
+
+  const address = clean(input.address);
+  let lat = input.lat ?? null;
+  let lng = input.lng ?? null;
+  if (address && (lat == null || lng == null)) {
+    const resolved = await resolveMapsCoordinates(address);
+    if (resolved) {
+      lat = resolved.lat;
+      lng = resolved.lng;
+    }
+  }
+
   const values = {
     user_id: auth.userId,
     name,
     instagram: clean(input.instagram)?.replace(/^@/, "") ?? null,
     website: clean(input.website),
     phone: clean(input.phone),
-    address: clean(input.address),
-    lat: input.lat ?? null,
-    lng: input.lng ?? null,
+    address,
+    lat,
+    lng,
     problem: clean(input.problem),
     notes: clean(input.notes),
     status: input.status,
@@ -129,6 +163,47 @@ export async function deleteLead(id: number): Promise<{ error?: string }> {
   return {};
 }
 
+export async function deleteLeadsBulk(
+  ids: number[]
+): Promise<{ deleted: number } | { error: string }> {
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+
+  const leadIds = [
+    ...new Set(
+      ids.filter((id) => Number.isSafeInteger(id) && id > 0)
+    ),
+  ];
+  if (leadIds.length === 0) return { error: "No hay leads seleccionados." };
+  if (leadIds.length > 1000) {
+    return { error: "Selecciona un máximo de 1000 leads cada vez." };
+  }
+
+  const { data: ownedLeads, error: readError } = await auth.supabase
+    .from("leads")
+    .select("id")
+    .eq("user_id", auth.userId)
+    .in("id", leadIds);
+
+  if (readError || ownedLeads.length !== leadIds.length) {
+    return { error: "Uno o más leads no existen o no se pueden eliminar." };
+  }
+
+  const { data: deletedLeads, error } = await auth.supabase
+    .from("leads")
+    .delete()
+    .eq("user_id", auth.userId)
+    .in("id", leadIds)
+    .select("id");
+
+  if (error || deletedLeads.length !== leadIds.length) {
+    return { error: "No se pudieron eliminar todos los leads." };
+  }
+
+  revalidateCrm();
+  return { deleted: deletedLeads.length };
+}
+
 export async function setLeadStatus(
   id: number,
   status: string
@@ -140,14 +215,18 @@ export async function setLeadStatus(
 
   const { data: lead, error: readError } = await auth.supabase
     .from("leads")
-    .select("contact_date")
+    .select("status, contact_date")
     .eq("id", id)
     .maybeSingle();
 
   if (readError || !lead) return { error: "No se encontró el lead." };
 
   const contactDate =
-    lead.contact_date ?? (status !== "por_contactar" ? today() : null);
+    status === "por_contactar"
+      ? null
+      : status === "contactado" && lead.status !== "contactado"
+        ? today()
+        : (lead.contact_date ?? today());
   const { error } = await auth.supabase
     .from("leads")
     .update({
@@ -161,6 +240,168 @@ export async function setLeadStatus(
 
   revalidateCrm();
   return {};
+}
+
+export async function updateLeadsBulk(
+  input: BulkLeadUpdate
+): Promise<{ updated: number } | { error: string }> {
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+
+  const leadIds = [
+    ...new Set(
+      input.leadIds.filter(
+        (id) => Number.isSafeInteger(id) && id > 0
+      )
+    ),
+  ];
+  if (leadIds.length === 0) return { error: "No hay leads seleccionados." };
+  if (leadIds.length > 1000) {
+    return { error: "Selecciona un máximo de 1000 leads cada vez." };
+  }
+
+  const hasStatus = input.status !== undefined;
+  const hasTags = input.tags !== undefined;
+  const hasFollowUpDate = Object.hasOwn(input, "followUpDate");
+
+  if (!hasStatus && !hasTags && !hasFollowUpDate) {
+    return { error: "Selecciona al menos un cambio para aplicar." };
+  }
+  if (hasStatus && !isValidStatus(input.status!)) {
+    return { error: "Estado no válido." };
+  }
+
+  const { data: ownedLeads, error: leadError } = await auth.supabase
+    .from("leads")
+    .select("id, status, contact_date")
+    .eq("user_id", auth.userId)
+    .in("id", leadIds);
+
+  if (leadError || ownedLeads.length !== leadIds.length) {
+    return { error: "Uno o más leads no existen o no se pueden editar." };
+  }
+
+  const tagIds = [
+    ...new Set(
+      (input.tags?.tagIds ?? []).filter(
+        (id) => Number.isSafeInteger(id) && id > 0
+      )
+    ),
+  ];
+
+  if (
+    input.tags &&
+    input.tags.mode !== "replace" &&
+    tagIds.length === 0
+  ) {
+    return { error: "Selecciona al menos una etiqueta." };
+  }
+
+  if (tagIds.length > 0) {
+    const { data: ownedTags, error: tagError } = await auth.supabase
+      .from("tags")
+      .select("id")
+      .eq("user_id", auth.userId)
+      .in("id", tagIds);
+
+    if (tagError || ownedTags.length !== tagIds.length) {
+      return { error: "Una o más etiquetas no existen." };
+    }
+  }
+
+  const leadValues: {
+    status?: string;
+    contact_date?: string | null;
+    follow_up_date?: string | null;
+    updated_at: string;
+  } = { updated_at: new Date().toISOString() };
+
+  if (hasStatus) {
+    leadValues.status = input.status;
+    if (input.status === "por_contactar") leadValues.contact_date = null;
+  }
+  if (hasFollowUpDate) leadValues.follow_up_date = clean(input.followUpDate);
+
+  if (hasStatus || hasFollowUpDate) {
+    const { error } = await auth.supabase
+      .from("leads")
+      .update(leadValues)
+      .eq("user_id", auth.userId)
+      .in("id", leadIds);
+
+    if (error) return { error: "No se pudieron actualizar los leads." };
+
+    if (input.status && input.status !== "por_contactar") {
+      const needsContactDate = ownedLeads
+        .filter((lead) =>
+          input.status === "contactado"
+            ? lead.status !== "contactado"
+            : !lead.contact_date
+        )
+        .map((lead) => lead.id);
+
+      if (needsContactDate.length > 0) {
+        const { error: contactDateError } = await auth.supabase
+          .from("leads")
+          .update({ contact_date: today() })
+          .eq("user_id", auth.userId)
+          .in("id", needsContactDate);
+
+        if (contactDateError) {
+          return {
+            error:
+              "Se cambió el estado, pero no se pudo actualizar la fecha de contacto.",
+          };
+        }
+      }
+    }
+  }
+
+  if (input.tags) {
+    if (input.tags.mode === "replace") {
+      const { error } = await auth.supabase
+        .from("lead_tags")
+        .delete()
+        .eq("user_id", auth.userId)
+        .in("lead_id", leadIds);
+
+      if (error) {
+        return { error: "Los leads se actualizaron, pero no sus etiquetas." };
+      }
+    } else if (input.tags.mode === "remove") {
+      const { error } = await auth.supabase
+        .from("lead_tags")
+        .delete()
+        .eq("user_id", auth.userId)
+        .in("lead_id", leadIds)
+        .in("tag_id", tagIds);
+
+      if (error) {
+        return { error: "Los leads se actualizaron, pero no sus etiquetas." };
+      }
+    }
+
+    if (input.tags.mode !== "remove" && tagIds.length > 0) {
+      const links = leadIds.flatMap((leadId) =>
+        tagIds.map((tagId) => ({
+          user_id: auth.userId,
+          lead_id: leadId,
+          tag_id: tagId,
+        }))
+      );
+      const { error } = await auth.supabase.from("lead_tags").upsert(links, {
+        onConflict: "lead_id,tag_id",
+        ignoreDuplicates: true,
+      });
+
+      if (error) {
+        return { error: "Los leads se actualizaron, pero no sus etiquetas." };
+      }
+    }
+  }
+
+  revalidateCrm();
+  return { updated: leadIds.length };
 }
 
 export async function createTag(
@@ -209,6 +450,14 @@ export async function geocodeAddress(
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return [];
 
+  const mapsCoordinates = await resolveMapsCoordinates(normalizedQuery);
+  if (mapsCoordinates) {
+    return [{
+      label: "Ubicación de Google Maps",
+      ...mapsCoordinates,
+    }];
+  }
+
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("q", normalizedQuery);
@@ -235,4 +484,61 @@ export async function geocodeAddress(
   } catch {
     return [];
   }
+}
+
+export async function locateGoogleMapsLinks(): Promise<
+  { located: number; failed: number } | { error: string }
+> {
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+
+  const { data: leads, error } = await auth.supabase
+    .from("leads")
+    .select("id, address, lat, lng")
+    .eq("user_id", auth.userId)
+    .or("lat.is.null,lng.is.null");
+
+  if (error) return { error: "No se pudieron localizar los enlaces de Maps." };
+
+  const candidates = leads.filter(
+    (lead) => lead.address && isGoogleMapsShortUrl(lead.address)
+  );
+  let located = 0;
+  let failed = 0;
+
+  // Resolvemos en grupos pequeños para no abrir demasiadas conexiones a Google.
+  for (let index = 0; index < candidates.length; index += 5) {
+    const batch = candidates.slice(index, index + 5);
+    const results = await Promise.all(
+      batch.map(async (lead) => ({
+        lead,
+        coordinates: await resolveMapsCoordinates(lead.address!),
+      }))
+    );
+
+    await Promise.all(
+      results.map(async ({ lead, coordinates }) => {
+        if (!coordinates) {
+          failed += 1;
+          return;
+        }
+
+        const { error: updateError } = await auth.supabase
+          .from("leads")
+          .update({
+            lat: coordinates.lat,
+            lng: coordinates.lng,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", auth.userId)
+          .eq("id", lead.id);
+
+        if (updateError) failed += 1;
+        else located += 1;
+      })
+    );
+  }
+
+  if (located > 0) revalidateCrm();
+  return { located, failed };
 }

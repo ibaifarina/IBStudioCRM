@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { toast } from "sonner";
+import { showContactDateNoticeToast } from "@/components/contact-date-notice";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -102,7 +103,13 @@ export function StatusSelect({
               e.stopPropagation();
               startTransition(async () => {
                 const result = await setLeadStatus(leadId, s.value);
-                if (result.error) toast.error(result.error);
+                if (result.error) {
+                  toast.error(result.error);
+                  return;
+                }
+                if (s.value === "contactado" && status !== "contactado") {
+                  showContactDateNoticeToast();
+                }
               });
             }}
           >

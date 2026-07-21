@@ -1,11 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { MapPinOffIcon } from "lucide-react";
+import { Loader2Icon, MapPinOffIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { locateGoogleMapsLinks } from "@/lib/actions";
 import { STATUSES, type StatusKey } from "@/lib/config";
+import { isGoogleMapsShortUrl } from "@/lib/parse";
 import type { LeadWithTags } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +18,8 @@ const LeadsMap = dynamic(() => import("@/components/leads-map"), {
 
 export function MapView({ leads }: { leads: LeadWithTags[] }) {
   const [hidden, setHidden] = useState<Set<StatusKey>>(new Set());
+  const [isLocating, startLocating] = useTransition();
+  const lastRequestedLinks = useRef("");
 
   const located = useMemo(
     () => leads.filter((l) => l.lat != null && l.lng != null),
@@ -25,6 +29,29 @@ export function MapView({ leads }: { leads: LeadWithTags[] }) {
     () => leads.filter((l) => l.lat == null || l.lng == null),
     [leads]
   );
+  const unresolvedMapLinks = useMemo(
+    () =>
+      unlocated
+        .filter((lead) => lead.address && isGoogleMapsShortUrl(lead.address))
+        .map((lead) => lead.id)
+        .sort((a, b) => a - b)
+        .join(","),
+    [unlocated]
+  );
+
+  useEffect(() => {
+    if (
+      !unresolvedMapLinks ||
+      lastRequestedLinks.current === unresolvedMapLinks
+    ) {
+      return;
+    }
+
+    lastRequestedLinks.current = unresolvedMapLinks;
+    startLocating(async () => {
+      await locateGoogleMapsLinks();
+    });
+  }, [unresolvedMapLinks]);
 
   const visible = located.filter(
     (l) => !hidden.has(l.status as StatusKey)
@@ -85,8 +112,12 @@ export function MapView({ leads }: { leads: LeadWithTags[] }) {
 
       {unlocated.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          <MapPinOffIcon className="size-3.5 shrink-0" />
-          Sin ubicación:
+          {isLocating ? (
+            <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <MapPinOffIcon className="size-3.5 shrink-0" />
+          )}
+          {isLocating ? "Ubicando enlaces de Maps…" : "Sin ubicación:"}
           {unlocated.map((l) => (
             <Link
               key={l.id}

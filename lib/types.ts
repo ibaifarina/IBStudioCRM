@@ -41,6 +41,16 @@ export type LeadInput = {
   tagIds: number[];
 };
 
+export type BulkLeadUpdate = {
+  leadIds: number[];
+  status?: string;
+  tags?: {
+    mode: "add" | "remove" | "replace";
+    tagIds: number[];
+  };
+  followUpDate?: string | null;
+};
+
 export type GeocodeResult = {
   label: string;
   lat: number;
