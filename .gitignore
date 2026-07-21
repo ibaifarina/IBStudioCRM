@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+.nyc_output
 
 # next.js
 /.next/
@@ -19,6 +20,10 @@
 
 # production
 /build
+
+# caches
+.cache/
+.turbo/
 
 # misc
 .DS_Store
@@ -32,10 +37,23 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
-.vercel
+.vercel/
+
+# supabase local development
+/supabase/.branches/
+/supabase/.temp/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Legacy local database (kept only as a recoverable local backup)
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3

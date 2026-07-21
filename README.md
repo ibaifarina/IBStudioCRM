@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# IB Studio · CRM
 
-## Getting Started
+CRM privado de prospección de negocios locales. Cada cuenta tiene su propio
+pipeline, aislado en PostgreSQL mediante Supabase Auth y Row-Level Security.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router) + **TypeScript**
+- **Tailwind CSS v4** + **shadcn/ui**
+- **Supabase**: PostgreSQL, autenticación y Row-Level Security
+- **Leaflet** para el mapa · **Recharts** para las gráficas
+- Geocodificación con **Nominatim** (OpenStreetMap)
+
+## Configurar Supabase
+
+1. Crea un proyecto en Supabase o instala Supabase desde Vercel Marketplace.
+2. Abre el SQL Editor de Supabase y ejecuta
+   `supabase/migrations/20260718000000_initial_schema.sql`.
+3. Copia `.env.example` a `.env.local` y completa la URL y la publishable key
+   desde el panel **Connect** del proyecto.
+4. En **Authentication → URL Configuration**, configura:
+   - Site URL local: `http://localhost:3000`
+   - Redirect URL local: `http://localhost:3000/auth/callback`
+   - Añade también `https://tu-dominio.vercel.app/auth/callback` al desplegar.
+
+Para producción, configura un proveedor SMTP propio en Supabase para los emails
+de confirmación y recuperación de contraseña.
+
+## Arrancar
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre [http://localhost:3000](http://localhost:3000), crea una cuenta y confirma
+el email. No se importa ni se crea ningún dato inicial.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Funcionalidades
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Registro, login, recuperación de contraseña y gestión de cuenta.
+- Datos aislados por usuario con políticas RLS en todas las tablas.
+- Resumen con KPIs, pipeline, actividad semanal y próximos follow-ups.
+- Tabla de leads con búsqueda, filtros y edición rápida.
+- Mapa de negocios coloreado por estado.
+- Etiquetas por cuenta y entrada rápida con `N` o `⌘K`.
