@@ -22,6 +22,16 @@ pipeline, aislado en PostgreSQL mediante Supabase Auth y Row-Level Security.
    - Site URL local: `http://localhost:3000`
    - Redirect URL local: `http://localhost:3000/auth/callback`
    - Añade también `https://tu-dominio.vercel.app/auth/callback` al desplegar.
+5. Crea un widget **Managed** en Cloudflare Turnstile y añade tu hostname de
+   producción y `localhost` si vas a usar el mismo proyecto Supabase en local.
+   Copia su **site key** en `NEXT_PUBLIC_TURNSTILE_SITE_KEY` tanto en
+   `.env.local` como en Vercel.
+6. En Supabase, abre **Authentication → Bot and Abuse Protection**, activa
+   CAPTCHA, selecciona Cloudflare Turnstile y pega allí la **secret key**. La
+   secret key no debe añadirse a las variables públicas de Next.js o Vercel.
+
+Turnstile usa el modo `interaction-only`: la comprobación sucede en segundo
+plano y el reto solo se muestra cuando Cloudflare necesita interacción.
 
 Para producción, configura un proveedor SMTP propio en Supabase para los emails
 de confirmación y recuperación de contraseña.

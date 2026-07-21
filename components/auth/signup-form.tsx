@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { signUp } from "@/app/(auth)/actions";
 import { FormMessage } from "@/components/form-message";
@@ -21,10 +21,12 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { TurnstileField } from "@/components/auth/turnstile-field";
 import { INITIAL_FORM_STATE } from "@/lib/form-state";
 
 export function SignupForm() {
   const [state, action, pending] = useActionState(signUp, INITIAL_FORM_STATE);
+  const [captchaReady, setCaptchaReady] = useState(false);
   const invalid = state.status === "error";
 
   return (
@@ -89,8 +91,13 @@ export function SignupForm() {
               />
             </Field>
           </FieldGroup>
+          <TurnstileField
+            action="signup"
+            pending={pending}
+            onReadyChange={setCaptchaReady}
+          />
           <FormMessage state={state} />
-          <Button type="submit" size="lg" disabled={pending}>
+          <Button type="submit" size="lg" disabled={pending || !captchaReady}>
             {pending && <Spinner data-icon="inline-start" />}
             Crear cuenta
           </Button>

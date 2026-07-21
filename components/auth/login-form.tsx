@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { login } from "@/app/(auth)/actions";
 import { FormMessage } from "@/components/form-message";
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { TurnstileField } from "@/components/auth/turnstile-field";
 import type { FormState } from "@/lib/form-state";
 
 export function LoginForm({
@@ -30,6 +31,7 @@ export function LoginForm({
   initialState: FormState;
 }) {
   const [state, action, pending] = useActionState(login, initialState);
+  const [captchaReady, setCaptchaReady] = useState(false);
   const invalid = state.status === "error";
 
   return (
@@ -76,8 +78,13 @@ export function LoginForm({
               />
             </Field>
           </FieldGroup>
+          <TurnstileField
+            action="login"
+            pending={pending}
+            onReadyChange={setCaptchaReady}
+          />
           <FormMessage state={state} />
-          <Button type="submit" size="lg" disabled={pending}>
+          <Button type="submit" size="lg" disabled={pending || !captchaReady}>
             {pending && <Spinner data-icon="inline-start" />}
             Entrar
           </Button>

@@ -11,6 +11,17 @@ function value(formData: FormData, key: string) {
   return typeof entry === "string" ? entry.trim() : "";
 }
 
+function captchaToken(formData: FormData) {
+  return value(formData, "captchaToken");
+}
+
+function missingCaptchaToken(): FormState {
+  return {
+    status: "error",
+    message: "Completa la verificación de seguridad e inténtalo de nuevo.",
+  };
+}
+
 async function getSiteOrigin() {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
@@ -39,7 +50,10 @@ function authErrorMessage(error: { code?: string; message: string }) {
     case "signup_disabled":
       return "El registro está desactivado temporalmente.";
     case "over_request_rate_limit":
+    case "over_email_send_rate_limit":
       return "Demasiados intentos. Espera unos minutos y vuelve a probar.";
+    case "captcha_failed":
+      return "No pudimos verificar que eres una persona. Inténtalo de nuevo.";
     default:
       return "No se pudo completar la operación. Inténtalo de nuevo.";
   }
@@ -52,13 +66,19 @@ export async function login(
   const email = value(formData, "email").toLowerCase();
   const password = value(formData, "password");
   const next = safeRedirectPath(formData.get("next"));
+  const captcha = captchaToken(formData);
 
   if (!email || !password) {
     return { status: "error", message: "Completa el email y la contraseña." };
   }
+  if (!captcha) return missingCaptchaToken();
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+    options: { captchaToken: captcha },
+  });
   if (error) return { status: "error", message: authErrorMessage(error) };
 
   redirect(next);
@@ -72,6 +92,7 @@ export async function signUp(
   const email = value(formData, "email").toLowerCase();
   const password = value(formData, "password");
   const confirmPassword = value(formData, "confirmPassword");
+  const captcha = captchaToken(formData);
 
   if (!fullName || !email || !password) {
     return { status: "error", message: "Completa todos los campos." };
@@ -85,6 +106,7 @@ export async function signUp(
   if (password !== confirmPassword) {
     return { status: "error", message: "Las contraseñas no coinciden." };
   }
+  if (!captcha) return missingCaptchaToken();
 
   const supabase = await createClient();
   const origin = await getSiteOrigin();
@@ -94,6 +116,7 @@ export async function signUp(
     options: {
       data: { full_name: fullName },
       emailRedirectTo: `${origin}/auth/callback?next=/`,
+      captchaToken: captcha,
     },
   });
 
@@ -125,13 +148,24 @@ export async function requestPasswordReset(
   formData: FormData
 ): Promise<FormState> {
   const email = value(formData, "email").toLowerCase();
+  const captcha = captchaToken(formData);
   if (!email) return { status: "error", message: "Introduce tu email." };
+  if (!captcha) return missingCaptchaToken();
 
   const supabase = await createClient();
   const origin = await getSiteOrigin();
-  await supabase.auth.resetPasswordForEmail(email, {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${origin}/auth/callback?next=/restablecer-contrasena`,
+    captchaToken: captcha,
   });
+
+  if (
+    error?.code === "captcha_failed" ||
+    error?.code === "over_request_rate_limit" ||
+    error?.code === "over_email_send_rate_limit"
+  ) {
+    return { status: "error", message: authErrorMessage(error) };
+  }
 
   return {
     status: "success",

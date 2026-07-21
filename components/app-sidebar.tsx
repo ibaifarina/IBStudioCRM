@@ -4,15 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ChartPieIcon,
-  CircleUserRoundIcon,
   MapIcon,
   PlusIcon,
   SearchIcon,
+  UserRoundIcon,
   UsersIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { openNewLead, openPalette } from "@/lib/events";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +20,6 @@ const NAV_ITEMS = [
   { href: "/", label: "Resumen", icon: ChartPieIcon },
   { href: "/leads", label: "Leads", icon: UsersIcon },
   { href: "/mapa", label: "Mapa", icon: MapIcon },
-  { href: "/cuenta", label: "Cuenta", icon: CircleUserRoundIcon },
 ];
 
 export function AppSidebar({ email, name }: { email: string; name: string }) {
@@ -36,42 +35,57 @@ export function AppSidebar({ email, name }: { email: string; name: string }) {
 
 function MobileBar({ pathname }: { pathname: string }) {
   return (
-    <div className="fixed inset-x-0 top-0 z-40 flex h-12 items-center gap-1 border-b border-sidebar-border bg-sidebar px-3 text-sidebar-foreground md:hidden">
-      <span className="text-lg font-semibold tracking-tight">
-        IB&nbsp;Studio
-      </span>
-      <nav className="ml-3 flex items-center gap-0.5">
-        {NAV_ITEMS.map((item) => {
-          const active =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-md px-2 py-1.5 text-xs font-medium",
-                active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/70"
-              )}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-      <ThemeToggle className="ml-auto" />
+    <>
+      <div className="fixed inset-x-0 top-0 z-40 flex h-12 items-center gap-1 border-b border-sidebar-border bg-sidebar px-3 text-sidebar-foreground md:hidden">
+        <span className="text-lg font-semibold tracking-tight">
+          IB&nbsp;Studio
+        </span>
+        <nav className="ml-3 flex items-center gap-0.5">
+          {NAV_ITEMS.map((item) => {
+            const active =
+              item.href === "/"
+                ? pathname === "/"
+                : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "rounded-md px-2 py-1.5 text-xs font-medium",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/70"
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <ThemeToggle className="ml-auto" />
+        <Link
+          href="/cuenta"
+          aria-label="Cuenta"
+          aria-current={pathname.startsWith("/cuenta") ? "page" : undefined}
+          title="Cuenta"
+          className={cn(
+            buttonVariants({ variant: "outline", size: "icon" }),
+            "ml-1"
+          )}
+        >
+          <UserRoundIcon />
+        </Link>
+      </div>
       <Button
-        size="icon-sm"
+        size="icon-lg"
         onClick={openNewLead}
-        className="ml-1 bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/85"
+        className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 size-14 rounded-full shadow-lg md:hidden [&_svg:not([class*='size-'])]:size-6"
         aria-label="Nuevo lead"
+        title="Nuevo lead"
       >
         <PlusIcon />
       </Button>
-    </div>
+    </>
   );
 }
 
@@ -95,13 +109,7 @@ function DesktopSidebar({
       <div className="px-5 pt-6 pb-4">
         <div className="text-2xl font-semibold tracking-tight">
           IB&nbsp;Studio
-          <span className="ml-1.5 align-middle text-[10px] font-bold tracking-[0.18em] text-sidebar-primary uppercase">
-            CRM
-          </span>
         </div>
-        <p className="mt-1 text-xs text-sidebar-foreground/60">
-          Prospección de negocios locales
-        </p>
       </div>
 
       <div className="px-3 pb-2">
@@ -169,10 +177,7 @@ function DesktopSidebar({
             </span>
           </span>
         </Link>
-        <ThemeToggle />
-        <p className="px-1 text-[11px] leading-relaxed text-sidebar-foreground/40">
-          Clientes IB Studio · Barcelona · {new Date().getFullYear()}
-        </p>
+        <ThemeToggle segmented />
       </div>
     </aside>
   );

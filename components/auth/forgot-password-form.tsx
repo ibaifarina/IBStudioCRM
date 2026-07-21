@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { requestPasswordReset } from "@/app/(auth)/actions";
 import { FormMessage } from "@/components/form-message";
@@ -16,6 +16,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { TurnstileField } from "@/components/auth/turnstile-field";
 import { INITIAL_FORM_STATE } from "@/lib/form-state";
 
 export function ForgotPasswordForm() {
@@ -23,6 +24,7 @@ export function ForgotPasswordForm() {
     requestPasswordReset,
     INITIAL_FORM_STATE
   );
+  const [captchaReady, setCaptchaReady] = useState(false);
   const invalid = state.status === "error";
 
   return (
@@ -49,8 +51,13 @@ export function ForgotPasswordForm() {
               />
             </Field>
           </FieldGroup>
+          <TurnstileField
+            action="password_reset"
+            pending={pending}
+            onReadyChange={setCaptchaReady}
+          />
           <FormMessage state={state} />
-          <Button type="submit" size="lg" disabled={pending}>
+          <Button type="submit" size="lg" disabled={pending || !captchaReady}>
             {pending && <Spinner data-icon="inline-start" />}
             Enviar enlace
           </Button>

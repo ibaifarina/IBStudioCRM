@@ -29,7 +29,7 @@ export default async function AccountPage() {
   const email = user.email ?? "";
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 md:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 md:px-8">
       <PageHeader
         title="Cuenta"
         subtitle="Gestiona tu identidad y la seguridad de acceso."
@@ -45,9 +45,6 @@ export default async function AccountPage() {
       <Card className="mb-4">
         <CardHeader>
           <CardTitle>Tu espacio de trabajo</CardTitle>
-          <CardDescription>
-            Los leads y etiquetas de esta cuenta están aislados mediante Row-Level Security.
-          </CardDescription>
         </CardHeader>
         <CardContent className="flex items-center gap-3">
           <Avatar size="lg">
