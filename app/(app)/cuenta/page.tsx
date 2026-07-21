@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -53,9 +52,11 @@ export default async function AccountPage() {
           <div className="min-w-0">
             <p className="truncate font-medium">{name}</p>
             <p className="truncate text-sm text-muted-foreground">{email}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Cuenta creada el {format(new Date(user.created_at), "d 'de' MMMM 'de' yyyy", { locale: es })}
-            </p>
+            {user.created_at && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Cuenta creada el {format(new Date(user.created_at), "d 'de' MMMM 'de' yyyy", { locale: es })}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

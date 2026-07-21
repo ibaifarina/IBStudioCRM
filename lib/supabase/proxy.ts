@@ -21,11 +21,13 @@ function responseWithSessionCookies(
     response.cookies.set(cookie);
   });
 
-  for (const header of ["cache-control", "expires", "pragma"]) {
-    const value = sessionResponse.headers.get(header);
-    if (value) response.headers.set(header, value);
-  }
+  response.headers.set("Cache-Control", "private, no-store");
 
+  return response;
+}
+
+function privateResponse(response: NextResponse) {
+  response.headers.set("Cache-Control", "private, no-store");
   return response;
 }
 
@@ -66,12 +68,8 @@ export async function updateSession(request: NextRequest) {
     return responseWithSessionCookies(loginUrl, response);
   }
 
-  if (isAuthenticated && matchesPublicPath(pathname)) {
-    const homeUrl = request.nextUrl.clone();
-    homeUrl.pathname = "/";
-    homeUrl.search = "";
-    return responseWithSessionCookies(homeUrl, response);
-  }
-
-  return response;
+  // Public auth pages must stay reachable. Redirecting them back to a
+  // protected page creates a loop whenever another auth check rejects the
+  // session or an upstream auth request fails temporarily.
+  return privateResponse(response);
 }
