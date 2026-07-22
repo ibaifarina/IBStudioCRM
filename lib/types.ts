@@ -24,6 +24,8 @@ export type Tag = {
 
 export type LeadWithTags = Lead & { tags: Tag[] };
 
+export type LeadOption = Pick<Lead, "id" | "name" | "instagram">;
+
 export type LeadInput = {
   id?: number;
   name: string;

@@ -1,16 +1,16 @@
 import { AppSidebar } from "@/components/app-sidebar";
 import { GlobalActions } from "@/components/global-actions";
 import { getUserDisplayName, requireUser } from "@/lib/auth";
-import { getAllTags, getLeadsWithTags } from "@/lib/queries";
+import { getAllTags, getLeadOptions } from "@/lib/queries";
 
 export default async function CrmLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const user = await requireUser();
-  const [leads, tags] = await Promise.all([
-    getLeadsWithTags(),
+  const [user, leads, tags] = await Promise.all([
+    requireUser(),
+    getLeadOptions(),
     getAllTags(),
   ]);
 

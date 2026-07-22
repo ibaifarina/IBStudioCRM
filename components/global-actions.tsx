@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { OPEN_NEW_LEAD_EVENT, OPEN_PALETTE_EVENT } from "@/lib/events";
-import type { LeadWithTags, Tag } from "@/lib/types";
+import type { LeadOption, Tag } from "@/lib/types";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -39,7 +39,7 @@ export function GlobalActions({
   leads,
   tags,
 }: {
-  leads: LeadWithTags[];
+  leads: LeadOption[];
   tags: Tag[];
 }) {
   const router = useRouter();
@@ -102,42 +102,48 @@ export function GlobalActions({
           </DialogDescription>
           <Command>
             <CommandInput placeholder="Buscar leads, acciones…" />
-        <CommandList>
-          <CommandEmpty>Sin resultados.</CommandEmpty>
-          <CommandGroup heading="Acciones">
-            <CommandItem onSelect={() => run(() => setNewLeadOpen(true))}>
-              <PlusIcon />
-              Nuevo lead
-            </CommandItem>
-            <CommandItem onSelect={() => run(() => router.push("/"))}>
-              <ChartPieIcon />
-              Ir a Resumen
-            </CommandItem>
-            <CommandItem onSelect={() => run(() => router.push("/leads"))}>
-              <UsersIcon />
-              Ir a Leads
-            </CommandItem>
-            <CommandItem onSelect={() => run(() => router.push("/mapa"))}>
-              <MapIcon />
-              Ir al Mapa
-            </CommandItem>
-          </CommandGroup>
-          {leads.length > 0 && (
-            <CommandGroup heading="Leads">
-              {leads.map((lead) => (
+            <CommandList>
+              <CommandEmpty>Sin resultados.</CommandEmpty>
+              <CommandGroup heading="Acciones">
                 <CommandItem
-                  key={lead.id}
-                  value={`${lead.name} ${lead.instagram ?? ""}`}
-                  onSelect={() =>
-                    run(() => router.push(`/leads?open=${lead.id}`))
-                  }
+                  onSelect={() => run(() => setNewLeadOpen(true))}
                 >
-                  <StoreIcon />
-                  <span className="truncate">{lead.name}</span>
+                  <PlusIcon />
+                  Nuevo lead
                 </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
+                <CommandItem onSelect={() => run(() => router.push("/"))}>
+                  <ChartPieIcon />
+                  Ir a Resumen
+                </CommandItem>
+                <CommandItem
+                  onSelect={() => run(() => router.push("/leads"))}
+                >
+                  <UsersIcon />
+                  Ir a Leads
+                </CommandItem>
+                <CommandItem
+                  onSelect={() => run(() => router.push("/mapa"))}
+                >
+                  <MapIcon />
+                  Ir al Mapa
+                </CommandItem>
+              </CommandGroup>
+              {leads.length > 0 && (
+                <CommandGroup heading="Leads">
+                  {leads.map((lead) => (
+                    <CommandItem
+                      key={lead.id}
+                      value={`${lead.name} ${lead.instagram ?? ""}`}
+                      onSelect={() =>
+                        run(() => router.push(`/leads?open=${lead.id}`))
+                      }
+                    >
+                      <StoreIcon />
+                      <span className="truncate">{lead.name}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
             </CommandList>
           </Command>
         </DialogContent>

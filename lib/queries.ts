@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import type { LeadWithTags, Tag } from "@/lib/types";
+import type { LeadOption, LeadWithTags, Tag } from "@/lib/types";
 
 type TagRow = {
   id: number;
@@ -79,6 +79,22 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
       )
       .sort((a, b) => a.name.localeCompare(b.name, "es")),
   }));
+});
+
+export const getLeadOptions = cache(async (): Promise<LeadOption[]> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id, name, instagram")
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw new Error("No se pudieron cargar las opciones de leads.", {
+      cause: error,
+    });
+  }
+
+  return data as LeadOption[];
 });
 
 export const getAllTags = cache(async (): Promise<Tag[]> => {
