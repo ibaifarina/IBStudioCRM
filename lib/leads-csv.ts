@@ -1,10 +1,17 @@
-import { isValidStatus, STATUSES } from "@/lib/config";
+import {
+  isValidStatus,
+  isValidWebsiteStatus,
+  STATUSES,
+  WEBSITE_STATUSES,
+  type WebsiteStatusKey,
+} from "@/lib/config";
 
 const HEADERS = [
   "id_original",
   "nombre",
   "instagram",
   "sitio_web",
+  "estado_web",
   "telefono",
   "direccion",
   "latitud",
@@ -25,6 +32,7 @@ export type CsvLead = {
   name: string;
   instagram: string | null;
   website: string | null;
+  websiteStatus: WebsiteStatusKey;
   phone: string | null;
   address: string | null;
   lat: number | null;
@@ -58,6 +66,7 @@ export function serializeLeadsCsv(leads: ExportLead[]): string {
     lead.name,
     lead.instagram,
     lead.website,
+    lead.websiteStatus,
     lead.phone,
     lead.address,
     lead.lat,
@@ -153,6 +162,17 @@ function normalizeStatus(value: string): string | null {
   return (
     STATUSES.find((status) => normalizeHeader(status.label) === normalized)?.value ??
     null
+  );
+}
+
+function normalizeWebsiteStatus(value: string): WebsiteStatusKey | null {
+  const normalized = normalizeHeader(value);
+  if (isValidWebsiteStatus(normalized)) return normalized;
+
+  return (
+    WEBSITE_STATUSES.find(
+      (status) => normalizeHeader(status.label) === normalized
+    )?.value ?? null
   );
 }
 
@@ -271,6 +291,12 @@ export function parseLeadsCsv(input: string): CsvLead[] {
     name: findColumn(headers, "nombre", "name"),
     instagram: findColumn(headers, "instagram"),
     website: findColumn(headers, "sitio_web", "website", "web"),
+    websiteStatus: findColumn(
+      headers,
+      "estado_web",
+      "website_status",
+      "estado_de_la_web"
+    ),
     phone: findColumn(headers, "telefono", "phone"),
     address: findColumn(headers, "direccion", "address"),
     lat: findColumn(headers, "latitud", "lat"),
@@ -320,10 +346,20 @@ export function parseLeadsCsv(input: string): CsvLead[] {
       throw new CsvImportError(`Fila ${rowNumber}: el estado “${rawStatus}” no es válido.`);
     }
 
+    const rawWebsiteStatus =
+      optional(get(row, columns.websiteStatus)) ?? "sin_revisar";
+    const websiteStatus = normalizeWebsiteStatus(rawWebsiteStatus);
+    if (!websiteStatus) {
+      throw new CsvImportError(
+        `Fila ${rowNumber}: el estado web “${rawWebsiteStatus}” no es válido.`
+      );
+    }
+
     return {
       name,
       instagram: optional(get(row, columns.instagram))?.replace(/^@/, "") ?? null,
       website: optional(get(row, columns.website)),
+      websiteStatus,
       phone: optional(get(row, columns.phone)),
       address: optional(get(row, columns.address)),
       lat: parseNumber(get(row, columns.lat), "la latitud", rowNumber, -90, 90),

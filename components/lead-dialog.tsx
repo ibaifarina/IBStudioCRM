@@ -16,6 +16,7 @@ import {
 import { DateField } from "@/components/date-field";
 import { StatusDot } from "@/components/status-badge";
 import { TagPicker } from "@/components/tag-picker";
+import { WebsiteStatusDot } from "@/components/website-status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,7 +36,11 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { geocodeAddress, saveLead } from "@/lib/actions";
-import { STATUSES } from "@/lib/config";
+import {
+  STATUSES,
+  WEBSITE_STATUSES,
+  type WebsiteStatusKey,
+} from "@/lib/config";
 import { todayISO } from "@/lib/dates";
 import { parseInstagramUsername, parseMapsCoordinates } from "@/lib/parse";
 import type { GeocodeResult, LeadWithTags, Tag } from "@/lib/types";
@@ -45,6 +50,7 @@ type FormState = {
   name: string;
   instagram: string;
   website: string;
+  websiteStatus: WebsiteStatusKey;
   phone: string;
   address: string;
   lat: number | null;
@@ -64,6 +70,7 @@ function fromLead(lead: LeadWithTags): FormState {
     name: lead.name,
     instagram: lead.instagram ?? "",
     website: lead.website ?? "",
+    websiteStatus: lead.websiteStatus,
     phone: lead.phone ?? "",
     address: lead.address ?? "",
     lat: lead.lat,
@@ -89,6 +96,7 @@ function emptyForm(): FormState {
     name: "",
     instagram: "",
     website: "",
+    websiteStatus: "sin_revisar",
     phone: "",
     address: "",
     lat: null,
@@ -102,6 +110,10 @@ function emptyForm(): FormState {
 }
 
 const STATUS_ITEMS = STATUSES.map((s) => ({ value: s.value, label: s.label }));
+const WEBSITE_STATUS_ITEMS = WEBSITE_STATUSES.map((status) => ({
+  value: status.value,
+  label: status.label,
+}));
 
 const NO_AUTOCOMPLETE = {
   autoComplete: "off",
@@ -143,6 +155,7 @@ export function LeadDialog({
           lead &&
             (lead.phone ||
               lead.website ||
+              lead.websiteStatus !== "sin_revisar" ||
               lead.followUpDate ||
               (lead.status && lead.status !== "por_contactar"))
         )
@@ -203,6 +216,7 @@ export function LeadDialog({
         name: form.name,
         instagram: form.instagram,
         website: form.website,
+        websiteStatus: form.websiteStatus,
         phone: form.phone,
         address: form.address,
         lat: form.lat,
@@ -361,6 +375,31 @@ export function LeadDialog({
           </div>
 
           <div className="grid gap-1.5">
+            <Label>Estado de la web</Label>
+            <Select
+              items={WEBSITE_STATUS_ITEMS}
+              value={form.websiteStatus}
+              onValueChange={(value) => {
+                if (typeof value === "string") {
+                  set("websiteStatus", value as WebsiteStatusKey);
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WEBSITE_STATUSES.map((status) => (
+                  <SelectItem key={status.value} value={status.value}>
+                    <WebsiteStatusDot status={status.value} />
+                    {status.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-1.5">
             <Label>Etiquetas</Label>
             <TagPicker
               allTags={allTags}
@@ -472,7 +511,7 @@ export function LeadDialog({
               )}
 
               <div className="grid gap-1.5">
-                <Label htmlFor="lead-website">Web / Linktree</Label>
+                <Label htmlFor="lead-website">URL de la web / Linktree</Label>
                 <Input
                   id="lead-website"
                   name="lead-website"

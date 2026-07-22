@@ -7,6 +7,7 @@ import { showContactDateNoticeToast } from "@/components/contact-date-notice";
 import { DateField } from "@/components/date-field";
 import { StatusDot } from "@/components/status-badge";
 import { TagPicker } from "@/components/tag-picker";
+import { WebsiteStatusDot } from "@/components/website-status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,7 +26,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { updateLeadsBulk } from "@/lib/actions";
-import { STATUSES } from "@/lib/config";
+import {
+  STATUSES,
+  WEBSITE_STATUSES,
+  type WebsiteStatusKey,
+} from "@/lib/config";
 import type { Tag } from "@/lib/types";
 
 type TagMode = "add" | "remove" | "replace";
@@ -73,6 +78,9 @@ export function BulkEditLeadsDialog({
 }) {
   const [applyStatus, setApplyStatus] = useState(false);
   const [status, setStatus] = useState("por_contactar");
+  const [applyWebsiteStatus, setApplyWebsiteStatus] = useState(false);
+  const [websiteStatus, setWebsiteStatus] =
+    useState<WebsiteStatusKey>("sin_revisar");
   const [applyTags, setApplyTags] = useState(false);
   const [tagMode, setTagMode] = useState<TagMode>("add");
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
@@ -83,6 +91,8 @@ export function BulkEditLeadsDialog({
   const reset = () => {
     setApplyStatus(false);
     setStatus("por_contactar");
+    setApplyWebsiteStatus(false);
+    setWebsiteStatus("sin_revisar");
     setApplyTags(false);
     setTagMode("add");
     setSelectedTags([]);
@@ -91,7 +101,7 @@ export function BulkEditLeadsDialog({
   };
 
   const canSubmit =
-    (applyStatus || applyTags || applyFollowUp) &&
+    (applyStatus || applyWebsiteStatus || applyTags || applyFollowUp) &&
     (!applyTags || tagMode === "replace" || selectedTags.length > 0);
 
   return (
@@ -132,6 +142,41 @@ export function BulkEditLeadsDialog({
                   {STATUSES.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
                       <StatusDot status={item.value} />
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="grid gap-2 rounded-lg border p-3">
+            <FieldToggle
+              checked={applyWebsiteStatus}
+              onChange={setApplyWebsiteStatus}
+              label="Cambiar estado de la web"
+            />
+            {applyWebsiteStatus && (
+              <Select
+                value={websiteStatus}
+                onValueChange={(value) =>
+                  setWebsiteStatus(value as WebsiteStatusKey)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    <WebsiteStatusDot status={websiteStatus} />
+                    {
+                      WEBSITE_STATUSES.find(
+                        (item) => item.value === websiteStatus
+                      )?.label
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {WEBSITE_STATUSES.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      <WebsiteStatusDot status={item.value} />
                       {item.label}
                     </SelectItem>
                   ))}
@@ -219,6 +264,7 @@ export function BulkEditLeadsDialog({
                 const result = await updateLeadsBulk({
                   leadIds,
                   ...(applyStatus ? { status } : {}),
+                  ...(applyWebsiteStatus ? { websiteStatus } : {}),
                   ...(applyTags
                     ? {
                         tags: {

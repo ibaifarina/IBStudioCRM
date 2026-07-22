@@ -1,8 +1,11 @@
+import type { WebsiteStatusKey } from "@/lib/config";
+
 export type Lead = {
   id: number;
   name: string;
   instagram: string | null;
   website: string | null;
+  websiteStatus: WebsiteStatusKey;
   phone: string | null;
   address: string | null;
   lat: number | null;
@@ -31,6 +34,7 @@ export type LeadInput = {
   name: string;
   instagram?: string | null;
   website?: string | null;
+  websiteStatus: WebsiteStatusKey;
   phone?: string | null;
   address?: string | null;
   lat?: number | null;
@@ -46,6 +50,7 @@ export type LeadInput = {
 export type BulkLeadUpdate = {
   leadIds: number[];
   status?: string;
+  websiteStatus?: WebsiteStatusKey;
   tags?: {
     mode: "add" | "remove" | "replace";
     tagIds: number[];

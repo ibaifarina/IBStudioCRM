@@ -6,6 +6,7 @@ import {
   AtSignIcon,
   ExternalLinkIcon,
   FilterIcon,
+  GlobeIcon,
   Loader2Icon,
   MapPinIcon,
   MoreHorizontalIcon,
@@ -22,6 +23,11 @@ import { BulkEditLeadsDialog } from "@/components/bulk-edit-leads-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
+import {
+  WebsiteStatusBadge,
+  WebsiteStatusDot,
+  WebsiteStatusSelect,
+} from "@/components/website-status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -55,7 +61,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { deleteLead } from "@/lib/actions";
-import { STATUSES } from "@/lib/config";
+import {
+  STATUSES,
+  WEBSITE_STATUSES,
+  WEBSITE_STATUS_MAP,
+} from "@/lib/config";
 import { formatDate, formatDateShort, isFollowUpOverdue, isFollowUpToday } from "@/lib/dates";
 import { openNewLead } from "@/lib/events";
 import type { LeadWithTags, Tag } from "@/lib/types";
@@ -86,6 +96,8 @@ export function LeadsView({
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [websiteStatusFilter, setWebsiteStatusFilter] =
+    useState<string>("all");
   const [tagFilter, setTagFilter] = useState<number | "all">("all");
   const [openId, setOpenId] = useState<number | null>(initialOpenId ?? null);
   const [editing, setEditing] = useState<LeadWithTags | null>(null);
@@ -106,6 +118,12 @@ export function LeadsView({
     const q = search.trim().toLowerCase();
     return leads.filter((lead) => {
       if (statusFilter !== "all" && lead.status !== statusFilter) return false;
+      if (
+        websiteStatusFilter !== "all" &&
+        lead.websiteStatus !== websiteStatusFilter
+      ) {
+        return false;
+      }
       if (tagFilter !== "all" && !lead.tags.some((t) => t.id === tagFilter))
         return false;
       if (!q) return true;
@@ -115,6 +133,8 @@ export function LeadsView({
         lead.notes,
         lead.problem,
         lead.address,
+        lead.website,
+        WEBSITE_STATUS_MAP[lead.websiteStatus].label,
         ...lead.tags.map((t) => t.name),
       ]
         .filter(Boolean)
@@ -122,7 +142,7 @@ export function LeadsView({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [leads, search, statusFilter, tagFilter]);
+  }, [leads, search, statusFilter, tagFilter, websiteStatusFilter]);
 
   const openLead = openId != null ? leads.find((l) => l.id === openId) : null;
   const activeTag = tagFilter !== "all" ? tags.find((t) => t.id === tagFilter) : null;
@@ -209,6 +229,36 @@ export function LeadsView({
           <DropdownMenuTrigger
             render={
               <Button variant="outline" className="gap-1.5">
+                <GlobeIcon className="size-3.5" />
+                {websiteStatusFilter === "all"
+                  ? "Web"
+                  : WEBSITE_STATUS_MAP[
+                      websiteStatusFilter as keyof typeof WEBSITE_STATUS_MAP
+                    ]?.label}
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="start" className="w-44">
+            <DropdownMenuItem onClick={() => setWebsiteStatusFilter("all")}>
+              Todos los estados web
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {WEBSITE_STATUSES.map((status) => (
+              <DropdownMenuItem
+                key={status.value}
+                onClick={() => setWebsiteStatusFilter(status.value)}
+              >
+                <WebsiteStatusDot status={status.value} />
+                {status.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="outline" className="gap-1.5">
                 <TagIcon className="size-3.5" />
                 {activeTag ? activeTag.name : "Etiqueta"}
               </Button>
@@ -246,13 +296,17 @@ export function LeadsView({
           </Button>
         )}
 
-        {(statusFilter !== "all" || tagFilter !== "all" || search) && (
+        {(statusFilter !== "all" ||
+          websiteStatusFilter !== "all" ||
+          tagFilter !== "all" ||
+          search) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setSearch("");
               setStatusFilter("all");
+              setWebsiteStatusFilter("all");
               setTagFilter("all");
             }}
           >
@@ -315,6 +369,7 @@ export function LeadsView({
                 Negocio
               </TableHead>
               <TableHead className="hidden lg:table-cell">Etiquetas</TableHead>
+              <TableHead className="hidden md:table-cell">Web</TableHead>
               <TableHead className="hidden xl:table-cell">Notas</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="hidden sm:table-cell">Contacto</TableHead>
@@ -326,7 +381,7 @@ export function LeadsView({
             {filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={selectionMode ? 8 : 7}
+                  colSpan={selectionMode ? 9 : 8}
                   className="h-32 text-center"
                 >
                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
@@ -380,6 +435,12 @@ export function LeadsView({
                         <TagBadge key={tag.id} tag={tag} />
                       ))}
                     </div>
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    <WebsiteStatusSelect
+                      leadId={lead.id}
+                      status={lead.websiteStatus}
+                    />
                   </TableCell>
                   <TableCell className="hidden max-w-72 xl:table-cell">
                     <p className="truncate text-muted-foreground">
@@ -534,6 +595,7 @@ function LeadSheet({
               </SheetDescription>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <StatusSelect leadId={lead.id} status={lead.status} />
+                <WebsiteStatusBadge status={lead.websiteStatus} />
                 {lead.tags.map((tag) => (
                   <TagBadge key={tag.id} tag={tag} />
                 ))}
@@ -570,6 +632,9 @@ function LeadSheet({
                 ) : (
                   "—"
                 )}
+              </InfoRow>
+              <InfoRow label="Estado web">
+                <WebsiteStatusBadge status={lead.websiteStatus} />
               </InfoRow>
               <InfoRow label="Teléfono">
                 {lead.phone ? (

@@ -17,6 +17,7 @@ type ExportRow = {
   name: string;
   instagram: string | null;
   website: string | null;
+  website_status: "sin_revisar" | "tiene_web" | "no_tiene_web" | "web_antigua";
   phone: string | null;
   address: string | null;
   lat: number | null;
@@ -66,6 +67,7 @@ export async function GET() {
         name,
         instagram,
         website,
+        website_status,
         phone,
         address,
         lat,
@@ -92,6 +94,7 @@ export async function GET() {
     name: lead.name,
     instagram: lead.instagram,
     website: lead.website,
+    websiteStatus: lead.website_status,
     phone: lead.phone,
     address: lead.address,
     lat: lead.lat,
@@ -214,6 +217,7 @@ export async function POST(request: Request) {
       name: lead.name,
       instagram: lead.instagram,
       website: lead.website,
+      website_status: lead.websiteStatus,
       phone: lead.phone,
       address: lead.address,
       lat: lead.lat,

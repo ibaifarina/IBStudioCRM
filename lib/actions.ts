@@ -1,7 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { TAG_COLORS, isValidStatus } from "@/lib/config";
+import {
+  TAG_COLORS,
+  isValidStatus,
+  isValidWebsiteStatus,
+} from "@/lib/config";
 import { resolveMapsCoordinates } from "@/lib/maps";
 import { isGoogleMapsShortUrl } from "@/lib/parse";
 import { createClient } from "@/lib/supabase/server";
@@ -19,6 +23,25 @@ function today(): string {
 function clean(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function isMissingWebsiteStatusColumn(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "42703" &&
+      "message" in error &&
+      typeof error.message === "string" &&
+      error.message.includes("website_status")
+  );
+}
+
+function websiteStatusMigrationError() {
+  return {
+    error:
+      "Falta aplicar la migración 20260722000000_add_website_status.sql en Supabase.",
+  } as const;
 }
 
 function revalidateCrm() {
@@ -49,6 +72,9 @@ export async function saveLead(
   const name = input.name?.trim();
   if (!name) return { error: "El nombre del negocio es obligatorio." };
   if (!isValidStatus(input.status)) return { error: "Estado no válido." };
+  if (!isValidWebsiteStatus(input.websiteStatus)) {
+    return { error: "Estado de la web no válido." };
+  }
 
   let contactDate =
     input.status === "por_contactar"
@@ -85,6 +111,7 @@ export async function saveLead(
     name,
     instagram: clean(input.instagram)?.replace(/^@/, "") ?? null,
     website: clean(input.website),
+    website_status: input.websiteStatus,
     phone: clean(input.phone),
     address,
     lat,
@@ -107,6 +134,9 @@ export async function saveLead(
       .maybeSingle();
 
     if (error || !data) {
+      if (isMissingWebsiteStatusColumn(error)) {
+        return websiteStatusMigrationError();
+      }
       return { error: "No se pudo actualizar el lead." };
     }
 
@@ -127,6 +157,9 @@ export async function saveLead(
       .single();
 
     if (error || !data) {
+      if (isMissingWebsiteStatusColumn(error)) {
+        return websiteStatusMigrationError();
+      }
       return { error: "No se pudo crear el lead." };
     }
 
@@ -242,6 +275,36 @@ export async function setLeadStatus(
   return {};
 }
 
+export async function setLeadWebsiteStatus(
+  id: number,
+  websiteStatus: string
+): Promise<{ error?: string }> {
+  if (!isValidWebsiteStatus(websiteStatus)) {
+    return { error: "Estado de la web no válido." };
+  }
+
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+
+  const { error } = await auth.supabase
+    .from("leads")
+    .update({
+      website_status: websiteStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    if (isMissingWebsiteStatusColumn(error)) {
+      return websiteStatusMigrationError();
+    }
+    return { error: "No se pudo cambiar el estado de la web." };
+  }
+
+  revalidateCrm();
+  return {};
+}
+
 export async function updateLeadsBulk(
   input: BulkLeadUpdate
 ): Promise<{ updated: number } | { error: string }> {
@@ -261,14 +324,21 @@ export async function updateLeadsBulk(
   }
 
   const hasStatus = input.status !== undefined;
+  const hasWebsiteStatus = input.websiteStatus !== undefined;
   const hasTags = input.tags !== undefined;
   const hasFollowUpDate = Object.hasOwn(input, "followUpDate");
 
-  if (!hasStatus && !hasTags && !hasFollowUpDate) {
+  if (!hasStatus && !hasWebsiteStatus && !hasTags && !hasFollowUpDate) {
     return { error: "Selecciona al menos un cambio para aplicar." };
   }
   if (hasStatus && !isValidStatus(input.status!)) {
     return { error: "Estado no válido." };
+  }
+  if (
+    hasWebsiteStatus &&
+    !isValidWebsiteStatus(input.websiteStatus!)
+  ) {
+    return { error: "Estado de la web no válido." };
   }
 
   const { data: ownedLeads, error: leadError } = await auth.supabase
@@ -311,6 +381,7 @@ export async function updateLeadsBulk(
 
   const leadValues: {
     status?: string;
+    website_status?: string;
     contact_date?: string | null;
     follow_up_date?: string | null;
     updated_at: string;
@@ -320,16 +391,22 @@ export async function updateLeadsBulk(
     leadValues.status = input.status;
     if (input.status === "por_contactar") leadValues.contact_date = null;
   }
+  if (hasWebsiteStatus) leadValues.website_status = input.websiteStatus;
   if (hasFollowUpDate) leadValues.follow_up_date = clean(input.followUpDate);
 
-  if (hasStatus || hasFollowUpDate) {
+  if (hasStatus || hasWebsiteStatus || hasFollowUpDate) {
     const { error } = await auth.supabase
       .from("leads")
       .update(leadValues)
       .eq("user_id", auth.userId)
       .in("id", leadIds);
 
-    if (error) return { error: "No se pudieron actualizar los leads." };
+    if (error) {
+      if (isMissingWebsiteStatusColumn(error)) {
+        return websiteStatusMigrationError();
+      }
+      return { error: "No se pudieron actualizar los leads." };
+    }
 
     if (input.status && input.status !== "por_contactar") {
       const needsContactDate = ownedLeads

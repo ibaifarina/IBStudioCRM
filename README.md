@@ -14,8 +14,8 @@ pipeline, aislado en PostgreSQL mediante Supabase Auth y Row-Level Security.
 ## Configurar Supabase
 
 1. Crea un proyecto en Supabase o instala Supabase desde Vercel Marketplace.
-2. Abre el SQL Editor de Supabase y ejecuta
-   `supabase/migrations/20260718000000_initial_schema.sql`.
+2. Abre el SQL Editor de Supabase y ejecuta, en orden, los archivos de
+   `supabase/migrations/`.
 3. Copia `.env.example` a `.env.local` y completa la URL y la publishable key
    desde el panel **Connect** del proyecto.
 4. En **Authentication → URL Configuration**, configura:
@@ -51,6 +51,7 @@ el email. No se importa ni se crea ningún dato inicial.
 - Registro, login, recuperación de contraseña y gestión de cuenta.
 - Datos aislados por usuario con políticas RLS en todas las tablas.
 - Resumen con KPIs, pipeline, actividad semanal y próximos follow-ups.
-- Tabla de leads con búsqueda, filtros y edición rápida.
+- Tabla de leads con búsqueda, filtros y edición rápida, incluido un estado
+  específico para la web del negocio.
 - Mapa de negocios coloreado por estado.
 - Etiquetas por cuenta y entrada rápida con `N` o `⌘K`.

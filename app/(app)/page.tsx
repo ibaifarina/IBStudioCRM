@@ -206,16 +206,17 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="font-heading text-base">
-              Contactos por semana
+              Tipos de negocio
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            {hasWeeklyData ? (
-              <WeeklyChart data={weeklyData} />
+          <CardContent className="flex flex-1 items-center">
+            {tagData.length > 0 ? (
+              <TagsChart data={tagData} />
             ) : (
               <EmptyPanel
-                title="Aún no hay contactos registrados"
-                description="La actividad de las últimas ocho semanas aparecerá aquí."
+                title="Aún no hay tipos de negocio"
+                description="Etiqueta tus leads para ver cómo se distribuyen."
+                className="h-44"
               />
             )}
           </CardContent>
@@ -224,17 +225,16 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="font-heading text-base">
-              Tipos de negocio
+              Contactos por semana
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            {tagData.length > 0 ? (
-              <TagsChart data={tagData} />
+          <CardContent className="flex flex-1 items-center">
+            {hasWeeklyData ? (
+              <WeeklyChart data={weeklyData} />
             ) : (
               <EmptyPanel
-                title="Aún no hay tipos de negocio"
-                description="Etiqueta tus leads para ver cómo se distribuyen."
-                className="h-44"
+                title="Aún no hay contactos registrados"
+                description="La actividad de las últimas ocho semanas aparecerá aquí."
               />
             )}
           </CardContent>

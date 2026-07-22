@@ -13,6 +13,7 @@ type LeadRow = {
   name: string;
   instagram: string | null;
   website: string | null;
+  website_status?: LeadWithTags["websiteStatus"] | null;
   phone: string | null;
   address: string | null;
   lat: number | null;
@@ -29,7 +30,7 @@ type LeadRow = {
 
 export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const result = await supabase
     .from("leads")
     .select(
       `
@@ -37,6 +38,7 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
         name,
         instagram,
         website,
+        website_status,
         phone,
         address,
         lat,
@@ -52,6 +54,41 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
       `
     )
     .order("updated_at", { ascending: false });
+  let data: unknown = result.data;
+  let error = result.error;
+
+  let hasWebsiteStatusColumn = true;
+  if (
+    error?.code === "42703" &&
+    error.message.includes("website_status")
+  ) {
+    hasWebsiteStatusColumn = false;
+    const fallback = await supabase
+      .from("leads")
+      .select(
+        `
+          id,
+          name,
+          instagram,
+          website,
+          phone,
+          address,
+          lat,
+          lng,
+          problem,
+          notes,
+          status,
+          contact_date,
+          follow_up_date,
+          created_at,
+          updated_at,
+          lead_tags ( tags ( id, name, color ) )
+        `
+      )
+      .order("updated_at", { ascending: false });
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     throw new Error("No se pudieron cargar los leads.", { cause: error });
@@ -62,6 +99,12 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
     name: lead.name,
     instagram: lead.instagram,
     website: lead.website,
+    websiteStatus:
+      hasWebsiteStatusColumn && lead.website_status
+        ? lead.website_status
+        : lead.website
+          ? "tiene_web"
+          : "sin_revisar",
     phone: lead.phone,
     address: lead.address,
     lat: lead.lat,

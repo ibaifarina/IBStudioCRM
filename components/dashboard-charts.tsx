@@ -52,7 +52,10 @@ export function StatusChart({ data }: { data: StatusDatum[] }) {
 
 export function WeeklyChart({ data }: { data: WeekDatum[] }) {
   return (
-    <ChartContainer config={chartConfig} className="aspect-auto h-56 w-full">
+    <ChartContainer
+      config={chartConfig}
+      className="aspect-auto min-h-56 w-full flex-1 self-stretch"
+    >
       <BarChart data={data} margin={{ left: 4, right: 4, top: 16, bottom: 0 }}>
         <XAxis
           dataKey="label"
@@ -85,16 +88,19 @@ export function WeeklyChart({ data }: { data: WeekDatum[] }) {
 
 export function TagsChart({ data }: { data: TagDatum[] }) {
   return (
-    <div className="flex items-center gap-4">
-      <ChartContainer config={chartConfig} className="aspect-square h-44">
+    <div className="flex flex-1 items-center justify-start gap-4 sm:gap-8">
+      <ChartContainer
+        config={chartConfig}
+        className="aspect-square h-44 shrink-0 sm:h-56"
+      >
         <PieChart>
           <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
           <Pie
             data={data}
             dataKey="value"
             nameKey="name"
-            innerRadius={46}
-            outerRadius={70}
+            innerRadius="58%"
+            outerRadius="88%"
             paddingAngle={2}
             strokeWidth={0}
           >
