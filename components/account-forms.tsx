@@ -8,6 +8,7 @@ import {
 } from "@/app/(app)/cuenta/actions";
 import { FormMessage } from "@/components/form-message";
 import { LeadDataTransfer } from "@/components/lead-data-transfer";
+import { MapsBookmarkletCard } from "@/components/maps-bookmarklet-card";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -170,6 +171,8 @@ export function AccountForms({
           </form>
         </CardContent>
       </Card>
+
+      <MapsBookmarkletCard />
 
       <LeadDataTransfer />
     </div>

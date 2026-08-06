@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { endOfDay, isWithinInterval, parseISO, startOfDay } from "date-fns";
 import { useRouter } from "next/navigation";
 import {
   AtSignIcon,
+  CheckIcon,
   ExternalLinkIcon,
   FilterIcon,
   GlobeIcon,
@@ -17,7 +19,9 @@ import {
   TagIcon,
   Trash2Icon,
 } from "lucide-react";
+import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
+import { AddedDateFilter } from "@/components/added-date-filter";
 import { BulkDeleteLeadsDialog } from "@/components/bulk-delete-leads-dialog";
 import { BulkEditLeadsDialog } from "@/components/bulk-edit-leads-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
@@ -42,6 +46,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -84,13 +91,23 @@ function mapsUrl(lead: LeadWithTags) {
   )}`;
 }
 
+function FilterMenuValue({ children }: { children?: string }) {
+  return (
+    <span className="ml-auto max-w-24 truncate text-right text-xs font-normal text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
 export function LeadsView({
   leads,
   tags,
+  today,
   initialOpenId,
 }: {
   leads: LeadWithTags[];
   tags: Tag[];
+  today: string;
   initialOpenId?: number;
 }) {
   const router = useRouter();
@@ -99,6 +116,7 @@ export function LeadsView({
   const [websiteStatusFilter, setWebsiteStatusFilter] =
     useState<string>("all");
   const [tagFilter, setTagFilter] = useState<number | "all">("all");
+  const [addedDateFilter, setAddedDateFilter] = useState<DateRange>();
   const [openId, setOpenId] = useState<number | null>(initialOpenId ?? null);
   const [editing, setEditing] = useState<LeadWithTags | null>(null);
   const [deleting, setDeleting] = useState<LeadWithTags | null>(null);
@@ -126,6 +144,18 @@ export function LeadsView({
       }
       if (tagFilter !== "all" && !lead.tags.some((t) => t.id === tagFilter))
         return false;
+      if (addedDateFilter?.from) {
+        const createdAt = parseISO(lead.createdAt);
+        if (
+          Number.isNaN(createdAt.getTime()) ||
+          !isWithinInterval(createdAt, {
+            start: startOfDay(addedDateFilter.from),
+            end: endOfDay(addedDateFilter.to ?? addedDateFilter.from),
+          })
+        ) {
+          return false;
+        }
+      }
       if (!q) return true;
       const haystack = [
         lead.name,
@@ -142,11 +172,27 @@ export function LeadsView({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [leads, search, statusFilter, tagFilter, websiteStatusFilter]);
+  }, [
+    addedDateFilter,
+    leads,
+    search,
+    statusFilter,
+    tagFilter,
+    websiteStatusFilter,
+  ]);
 
   const openLead = openId != null ? leads.find((l) => l.id === openId) : null;
   const activeTag = tagFilter !== "all" ? tags.find((t) => t.id === tagFilter) : null;
+  const leadCreatedDates = useMemo(
+    () => leads.map((lead) => lead.createdAt),
+    [leads]
+  );
   const selectedCount = selectedIds.size;
+  const activeFilterCount = [
+    statusFilter !== "all",
+    websiteStatusFilter !== "all",
+    tagFilter !== "all",
+  ].filter(Boolean).length;
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((lead) => selectedIds.has(lead.id));
   const someFilteredSelected = filtered.some((lead) => selectedIds.has(lead.id));
@@ -200,86 +246,122 @@ export function LeadsView({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button variant="outline" className="gap-1.5">
+              <Button
+                variant="outline"
+                className={cn("gap-1.5", activeFilterCount > 0 && "bg-muted")}
+              >
                 <FilterIcon className="size-3.5" />
-                {statusFilter === "all"
-                  ? "Estado"
-                  : STATUSES.find((s) => s.value === statusFilter)?.label}
+                Filtros
+                {activeFilterCount > 0 && (
+                  <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                    {activeFilterCount}
+                  </span>
+                )}
               </Button>
             }
           />
-          <DropdownMenuContent align="start" className="w-44">
-            <DropdownMenuItem onClick={() => setStatusFilter("all")}>
-              Todos los estados
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {STATUSES.map((s) => (
-              <DropdownMenuItem
-                key={s.value}
-                onClick={() => setStatusFilter(s.value)}
-              >
-                <StatusDot status={s.value} />
-                {s.label}
-              </DropdownMenuItem>
-            ))}
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <FilterIcon />
+                <span>Estado</span>
+                <FilterMenuValue>
+                  {statusFilter === "all"
+                    ? "Todos"
+                    : STATUSES.find((s) => s.value === statusFilter)?.label}
+                </FilterMenuValue>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-48">
+                <DropdownMenuItem onClick={() => setStatusFilter("all")}>
+                  <CheckIcon className={cn(statusFilter !== "all" && "opacity-0")} />
+                  Todos los estados
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {STATUSES.map((status) => (
+                  <DropdownMenuItem
+                    key={status.value}
+                    onClick={() => setStatusFilter(status.value)}
+                  >
+                    <StatusDot status={status.value} />
+                    <span className="flex-1">{status.label}</span>
+                    {statusFilter === status.value && <CheckIcon />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <GlobeIcon />
+                <span>Web</span>
+                <FilterMenuValue>
+                  {websiteStatusFilter === "all"
+                    ? "Todas"
+                    : WEBSITE_STATUS_MAP[
+                        websiteStatusFilter as keyof typeof WEBSITE_STATUS_MAP
+                      ]?.label}
+                </FilterMenuValue>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-52">
+                <DropdownMenuItem onClick={() => setWebsiteStatusFilter("all")}>
+                  <CheckIcon
+                    className={cn(websiteStatusFilter !== "all" && "opacity-0")}
+                  />
+                  Todos los estados web
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {WEBSITE_STATUSES.map((status) => (
+                  <DropdownMenuItem
+                    key={status.value}
+                    onClick={() => setWebsiteStatusFilter(status.value)}
+                  >
+                    <WebsiteStatusDot status={status.value} />
+                    <span className="flex-1">{status.label}</span>
+                    {websiteStatusFilter === status.value && <CheckIcon />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <TagIcon />
+                <span>Etiqueta</span>
+                <FilterMenuValue>
+                  {activeTag?.name ?? "Todas"}
+                </FilterMenuValue>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-52">
+                <DropdownMenuItem onClick={() => setTagFilter("all")}>
+                  <CheckIcon className={cn(tagFilter !== "all" && "opacity-0")} />
+                  Todas las etiquetas
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {tags.map((tag) => (
+                  <DropdownMenuItem
+                    key={tag.id}
+                    onClick={() => setTagFilter(tag.id)}
+                  >
+                    <span
+                      className="size-2.5 rounded-full"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    <span className="flex-1 truncate">{tag.name}</span>
+                    {tagFilter === tag.id && <CheckIcon />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" className="gap-1.5">
-                <GlobeIcon className="size-3.5" />
-                {websiteStatusFilter === "all"
-                  ? "Web"
-                  : WEBSITE_STATUS_MAP[
-                      websiteStatusFilter as keyof typeof WEBSITE_STATUS_MAP
-                    ]?.label}
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start" className="w-44">
-            <DropdownMenuItem onClick={() => setWebsiteStatusFilter("all")}>
-              Todos los estados web
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {WEBSITE_STATUSES.map((status) => (
-              <DropdownMenuItem
-                key={status.value}
-                onClick={() => setWebsiteStatusFilter(status.value)}
-              >
-                <WebsiteStatusDot status={status.value} />
-                {status.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" className="gap-1.5">
-                <TagIcon className="size-3.5" />
-                {activeTag ? activeTag.name : "Etiqueta"}
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuItem onClick={() => setTagFilter("all")}>
-              Todas las etiquetas
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {tags.map((t) => (
-              <DropdownMenuItem key={t.id} onClick={() => setTagFilter(t.id)}>
-                <span
-                  className="size-2.5 rounded-full"
-                  style={{ backgroundColor: t.color }}
-                />
-                {t.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AddedDateFilter
+          createdDates={leadCreatedDates}
+          today={today}
+          value={addedDateFilter}
+          onChange={setAddedDateFilter}
+        />
 
         {selectionMode ? (
           <Button variant="outline" onClick={closeSelectionMode}>
@@ -299,6 +381,7 @@ export function LeadsView({
         {(statusFilter !== "all" ||
           websiteStatusFilter !== "all" ||
           tagFilter !== "all" ||
+          addedDateFilter?.from ||
           search) && (
           <Button
             variant="ghost"
@@ -308,6 +391,7 @@ export function LeadsView({
               setStatusFilter("all");
               setWebsiteStatusFilter("all");
               setTagFilter("all");
+              setAddedDateFilter(undefined);
             }}
           >
             Limpiar

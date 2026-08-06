@@ -1,5 +1,6 @@
 import { LeadsView } from "@/components/leads-view";
 import { PageHeader } from "@/components/page-header";
+import { todayISO } from "@/lib/dates";
 import { getAllTags, getLeadsWithTags } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export default async function LeadsPage({
       <LeadsView
         leads={leads}
         tags={tags}
+        today={todayISO()}
         initialOpenId={
           initialOpenId != null && !Number.isNaN(initialOpenId)
             ? initialOpenId

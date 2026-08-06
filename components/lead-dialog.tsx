@@ -5,6 +5,7 @@ import {
   AtSignIcon,
   CheckIcon,
   ChevronDownIcon,
+  ClipboardPasteIcon,
   Loader2Icon,
   MapPinIcon,
 } from "lucide-react";
@@ -42,6 +43,11 @@ import {
   type WebsiteStatusKey,
 } from "@/lib/config";
 import { todayISO } from "@/lib/dates";
+import {
+  googleMapsLeadToFormData,
+  parseGoogleMapsLead,
+  type GoogleMapsLead,
+} from "@/lib/google-maps-lead";
 import { parseInstagramUsername, parseMapsCoordinates } from "@/lib/parse";
 import type { GeocodeResult, LeadWithTags, Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -127,37 +133,56 @@ export function LeadDialog({
   onOpenChange,
   allTags,
   lead,
+  importedMapsLead,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   allTags: Tag[];
   lead?: LeadWithTags | null;
+  importedMapsLead?: GoogleMapsLead | null;
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [geoResults, setGeoResults] = useState<GeocodeResult[]>([]);
   const [geoLoading, setGeoLoading] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [showContactDateNotice, setShowContactDateNotice] = useState(false);
+  const [mapsPaste, setMapsPaste] = useState("");
+  const [mapsPasteError, setMapsPasteError] = useState("");
   const [saving, startSaving] = useTransition();
   const nameRef = useRef<HTMLInputElement>(null);
 
   const isEdit = Boolean(lead);
 
   const [prevOpen, setPrevOpen] = useState(false);
-  if (open !== prevOpen) {
+  const [prevImportedMapsLead, setPrevImportedMapsLead] =
+    useState<GoogleMapsLead | null | undefined>(importedMapsLead);
+  if (open !== prevOpen || importedMapsLead !== prevImportedMapsLead) {
     setPrevOpen(open);
+    setPrevImportedMapsLead(importedMapsLead);
     if (open) {
-      setForm(lead ? fromLead(lead) : emptyForm());
+      setForm(
+        lead
+          ? fromLead(lead)
+          : importedMapsLead
+            ? {
+                ...emptyForm(),
+                ...googleMapsLeadToFormData(importedMapsLead),
+              }
+            : emptyForm()
+      );
       setGeoResults([]);
       setShowContactDateNotice(false);
+      setMapsPaste("");
+      setMapsPasteError("");
       setAdvanced(
         Boolean(
-          lead &&
-            (lead.phone ||
-              lead.website ||
-              lead.websiteStatus !== "sin_revisar" ||
-              lead.followUpDate ||
-              (lead.status && lead.status !== "por_contactar"))
+          importedMapsLead ||
+            (lead &&
+              (lead.phone ||
+                lead.website ||
+                lead.websiteStatus !== "sin_revisar" ||
+                lead.followUpDate ||
+                (lead.status && lead.status !== "por_contactar")))
         )
       );
     }
@@ -185,6 +210,29 @@ export function LeadDialog({
       lat: coords?.lat ?? null,
       lng: coords?.lng ?? null,
     }));
+  };
+
+  const fillFromMaps = (leadData: GoogleMapsLead) => {
+    const imported = googleMapsLeadToFormData(leadData);
+    setForm((current) => ({
+      ...current,
+      ...imported,
+    }));
+    setMapsPaste("");
+    setMapsPasteError("");
+    setAdvanced(true);
+    toast.success(`Datos de «${leadData.name}» rellenados`);
+  };
+
+  const importMapsPaste = () => {
+    const parsed = parseGoogleMapsLead(mapsPaste);
+    if (!parsed) {
+      setMapsPasteError(
+        "El texto no tiene el formato IBSTUDIO_CRM_LEAD_V1 del extractor de Maps."
+      );
+      return;
+    }
+    fillFromMaps(parsed);
   };
 
   const handleGeocode = async () => {
@@ -421,6 +469,18 @@ export function LeadDialog({
             />
           </div>
 
+          <div className="grid gap-1.5">
+            <Label htmlFor="lead-phone">Teléfono</Label>
+            <Input
+              id="lead-phone"
+              name="lead-phone"
+              value={form.phone}
+              onChange={(e) => set("phone", e.target.value)}
+              placeholder="+34 …"
+              {...NO_AUTOCOMPLETE}
+            />
+          </div>
+
           <button
             type="button"
             onClick={() => setAdvanced((v) => !v)}
@@ -434,64 +494,101 @@ export function LeadDialog({
             />
             {advanced ? "Ocultar opciones avanzadas" : "Más opciones"}
             <span className="ml-auto text-xs opacity-70">
-              teléfono, estado, fechas…
+              estado, fechas, web…
             </span>
           </button>
 
           {advanced && (
             <div className="grid gap-3.5 border-t pt-3.5">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1.5">
-                  <Label htmlFor="lead-phone">Teléfono</Label>
-                  <Input
-                    id="lead-phone"
-                    name="lead-phone"
-                    value={form.phone}
-                    onChange={(e) => set("phone", e.target.value)}
-                    placeholder="+34 …"
+              {!isEdit && (
+                <div className="grid gap-1.5 rounded-xl border bg-muted/30 p-3">
+                  <div className="flex items-center gap-2">
+                    <ClipboardPasteIcon className="size-4 text-muted-foreground" />
+                    <Label htmlFor="lead-maps-import">
+                      Importar datos de Maps
+                    </Label>
+                  </div>
+                  <Textarea
+                    id="lead-maps-import"
+                    name="lead-maps-import"
+                    rows={3}
+                    value={mapsPaste}
+                    onChange={(e) => {
+                      setMapsPaste(e.target.value);
+                      setMapsPasteError("");
+                    }}
+                    placeholder="Pega aquí el texto IBSTUDIO_CRM_LEAD_V1…"
+                    aria-invalid={Boolean(mapsPasteError)}
+                    aria-describedby={
+                      mapsPasteError ? "lead-maps-import-error" : undefined
+                    }
                     {...NO_AUTOCOMPLETE}
                   />
+                  {mapsPasteError && (
+                    <p
+                      id="lead-maps-import-error"
+                      className="text-xs text-destructive"
+                      role="alert"
+                    >
+                      {mapsPasteError}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      Usa el marcador extractor sobre la ficha del negocio.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!mapsPaste.trim()}
+                      onClick={importMapsPaste}
+                    >
+                      Rellenar
+                    </Button>
+                  </div>
                 </div>
-                <div className="grid gap-1.5">
-                  <Label>Estado</Label>
-                  <Select
-                    items={STATUS_ITEMS}
-                    value={form.status}
-                    onValueChange={(v) => {
-                      if (typeof v !== "string") return;
-                      const changedToContacted =
-                        v === "contactado" && form.status !== "contactado";
-                      setForm((current) => ({
-                        ...current,
-                        status: v,
-                        contactDate:
-                          v === "por_contactar"
-                            ? ""
-                            : changedToContacted || !current.contactDate
-                              ? todayISO()
-                              : current.contactDate,
-                      }));
-                      if (
-                        changedToContacted &&
-                        shouldShowContactDateNotice()
-                      ) {
-                        setShowContactDateNotice(true);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STATUS_ITEMS.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          <StatusDot status={s.value} />
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              )}
+
+              <div className="grid gap-1.5">
+                <Label>Estado</Label>
+                <Select
+                  items={STATUS_ITEMS}
+                  value={form.status}
+                  onValueChange={(v) => {
+                    if (typeof v !== "string") return;
+                    const changedToContacted =
+                      v === "contactado" && form.status !== "contactado";
+                    setForm((current) => ({
+                      ...current,
+                      status: v,
+                      contactDate:
+                        v === "por_contactar"
+                          ? ""
+                          : changedToContacted || !current.contactDate
+                            ? todayISO()
+                            : current.contactDate,
+                    }));
+                    if (
+                      changedToContacted &&
+                      shouldShowContactDateNotice()
+                    ) {
+                      setShowContactDateNotice(true);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_ITEMS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        <StatusDot status={s.value} />
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {form.status !== "por_contactar" && (
@@ -543,7 +640,6 @@ export function LeadDialog({
                   ))}
                 </div>
               </div>
-
             </div>
           )}
 
