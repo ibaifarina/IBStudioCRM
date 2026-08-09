@@ -27,6 +27,28 @@ export type Tag = {
 
 export type LeadWithTags = Lead & { tags: Tag[] };
 
+export type LeadCursor = Pick<Lead, "id" | "updatedAt">;
+
+export type LeadFilters = {
+  search?: string;
+  status?: string;
+  websiteStatus?: WebsiteStatusKey;
+  tagId?: number;
+  createdFrom?: string;
+  createdTo?: string;
+};
+
+export type LeadPage = {
+  leads: LeadWithTags[];
+  total: number | null;
+  nextCursor: LeadCursor | null;
+};
+
+export type LeadImportComparable = Pick<
+  Lead,
+  "name" | "instagram" | "website" | "phone" | "address" | "lat" | "lng"
+>;
+
 export type LeadOption = Pick<Lead, "id" | "name" | "instagram">;
 
 export type LeadInput = {

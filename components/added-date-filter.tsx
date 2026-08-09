@@ -17,13 +17,10 @@ import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 type AddedDateFilterProps = {
@@ -120,7 +117,7 @@ export function AddedDateFilter({
   };
 
   return (
-    <Popover
+    <DropdownMenuSub
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
@@ -130,39 +127,27 @@ export function AddedDateFilter({
         }
       }}
     >
-      <PopoverTrigger
-        render={
-          <Button
-            variant="outline"
-            className={cn("gap-1.5", value?.from && "border-primary/30 bg-muted")}
-          >
-            <CalendarDaysIcon className="size-3.5" />
-            {rangeLabel(value)}
-          </Button>
-        }
-      />
-      <PopoverContent
-        align="start"
-        collisionAvoidance={{
-          side: "none",
-          align: "shift",
-          fallbackAxisSide: "none",
-        }}
-        className="w-[min(24rem,calc(100vw-2rem))] gap-0 overflow-hidden p-0"
-      >
-        <PopoverHeader className="border-b px-4 pt-4 pb-3">
+      <DropdownMenuSubTrigger>
+        <CalendarDaysIcon />
+        <span>Añadidos</span>
+        <span className="ml-auto max-w-24 truncate text-right text-xs font-normal text-muted-foreground">
+          {value?.from ? rangeLabel(value) : "Cualquier fecha"}
+        </span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-[min(24rem,calc(100vw-2rem))] overflow-hidden p-0">
+        <div className="border-b px-4 pt-4 pb-3">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <PopoverTitle>Fecha de alta</PopoverTitle>
-              <PopoverDescription className="sr-only">
+              <h2 className="font-heading text-sm font-medium">Fecha de alta</h2>
+              <p className="sr-only">
                 Arrastra en el gráfico para elegir un intervalo.
-              </PopoverDescription>
+              </p>
             </div>
             <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium tabular-nums">
               {totalVolume} en 30 días
             </span>
           </div>
-        </PopoverHeader>
+        </div>
 
         <figure className="border-b px-4 pt-3 pb-3">
           <figcaption className="mb-2 flex items-center justify-between text-xs">
@@ -299,7 +284,7 @@ export function AddedDateFilter({
             Aplicar fechas
           </Button>
         </div>
-      </PopoverContent>
-    </Popover>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }

@@ -21,7 +21,7 @@ export default async function CrmLayout({
           email={user.email ?? ""}
           name={getUserDisplayName(user)}
         />
-        <main className="paper-grain min-w-0 flex-1 pt-12 md:ml-[232px] md:pt-0">
+        <main className="paper-grain min-w-0 flex-1 pt-12 transition-[margin] duration-200 motion-reduce:transition-none md:ml-[232px] md:pt-0 md:peer-data-[collapsed=true]:ml-0">
           {children}
         </main>
       </div>

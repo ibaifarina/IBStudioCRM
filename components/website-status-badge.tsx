@@ -1,7 +1,12 @@
 "use client";
 
 import { useTransition } from "react";
-import { ChevronDownIcon } from "lucide-react";
+import {
+  CircleHelpIcon,
+  HistoryIcon,
+  WifiIcon,
+  WifiOffIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -16,6 +21,25 @@ import {
   type WebsiteStatusKey,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
+
+export function WebsiteStatusIcon({
+  status,
+  className,
+}: {
+  status: WebsiteStatusKey;
+  className?: string;
+}) {
+  const Icon =
+    status === "tiene_web"
+      ? WifiIcon
+      : status === "no_tiene_web"
+        ? WifiOffIcon
+        : status === "web_antigua"
+          ? HistoryIcon
+          : CircleHelpIcon;
+
+  return <Icon aria-hidden className={cn("size-4", className)} />;
+}
 
 export function WebsiteStatusDot({
   status,
@@ -81,7 +105,7 @@ export function WebsiteStatusSelect({
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "inline-flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs font-medium whitespace-nowrap transition-opacity outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50",
+          "inline-flex size-7 items-center justify-center rounded-lg border transition-all outline-none select-none hover:brightness-95 focus-visible:ring-2 focus-visible:ring-ring/50",
           pending && "opacity-50"
         )}
         style={{
@@ -90,10 +114,10 @@ export function WebsiteStatusSelect({
           borderColor: `${info.color}38`,
         }}
         onClick={(event) => event.stopPropagation()}
+        aria-label={`Estado web: ${info.label}`}
+        title={info.label}
       >
-        <WebsiteStatusDot status={status} />
-        {info.label}
-        <ChevronDownIcon className="size-3 opacity-60" />
+        <WebsiteStatusIcon status={status} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
         {WEBSITE_STATUSES.map((item) => (
@@ -107,7 +131,12 @@ export function WebsiteStatusSelect({
               });
             }}
           >
-            <WebsiteStatusDot status={item.value} />
+            <span style={{ color: item.color }}>
+              <WebsiteStatusIcon
+                status={item.value}
+                className="size-3.5"
+              />
+            </span>
             {item.label}
             {item.value === status && (
               <span className="ml-auto text-muted-foreground">✓</span>

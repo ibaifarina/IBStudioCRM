@@ -1,7 +1,14 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { endOfDay, isWithinInterval, parseISO, startOfDay } from "date-fns";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { endOfDay, startOfDay } from "date-fns";
 import { useRouter } from "next/navigation";
 import {
   AtSignIcon,
@@ -21,9 +28,11 @@ import {
 } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
+import { loadLeadsPage } from "@/app/(app)/leads/actions";
 import { AddedDateFilter } from "@/components/added-date-filter";
 import { BulkDeleteLeadsDialog } from "@/components/bulk-delete-leads-dialog";
 import { BulkEditLeadsDialog } from "@/components/bulk-edit-leads-dialog";
+import { LeadImportDialog } from "@/components/lead-import-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
@@ -75,7 +84,12 @@ import {
 } from "@/lib/config";
 import { formatDate, formatDateShort, isFollowUpOverdue, isFollowUpToday } from "@/lib/dates";
 import { openNewLead } from "@/lib/events";
-import type { LeadWithTags, Tag } from "@/lib/types";
+import type {
+  LeadFilters,
+  LeadPage,
+  LeadWithTags,
+  Tag,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function instagramUrl(handle: string) {
@@ -100,17 +114,27 @@ function FilterMenuValue({ children }: { children?: string }) {
 }
 
 export function LeadsView({
-  leads,
+  initialPage,
   tags,
   today,
+  createdDates,
   initialOpenId,
+  initialOpenLead,
 }: {
-  leads: LeadWithTags[];
+  initialPage: LeadPage;
   tags: Tag[];
   today: string;
+  createdDates: string[];
   initialOpenId?: number;
+  initialOpenLead: LeadWithTags | null;
 }) {
   const router = useRouter();
+  const [leads, setLeads] = useState(initialPage.leads);
+  const [total, setTotal] = useState(initialPage.total ?? initialPage.leads.length);
+  const [nextCursor, setNextCursor] = useState(initialPage.nextCursor);
+  const [isFiltering, setIsFiltering] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [websiteStatusFilter, setWebsiteStatusFilter] =
@@ -132,66 +156,135 @@ export function LeadsView({
     if (initialOpenId != null) setOpenId(initialOpenId);
   }
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return leads.filter((lead) => {
-      if (statusFilter !== "all" && lead.status !== statusFilter) return false;
-      if (
-        websiteStatusFilter !== "all" &&
-        lead.websiteStatus !== websiteStatusFilter
-      ) {
-        return false;
-      }
-      if (tagFilter !== "all" && !lead.tags.some((t) => t.id === tagFilter))
-        return false;
-      if (addedDateFilter?.from) {
-        const createdAt = parseISO(lead.createdAt);
-        if (
-          Number.isNaN(createdAt.getTime()) ||
-          !isWithinInterval(createdAt, {
-            start: startOfDay(addedDateFilter.from),
-            end: endOfDay(addedDateFilter.to ?? addedDateFilter.from),
-          })
-        ) {
-          return false;
-        }
-      }
-      if (!q) return true;
-      const haystack = [
-        lead.name,
-        lead.instagram,
-        lead.notes,
-        lead.problem,
-        lead.address,
-        lead.website,
-        WEBSITE_STATUS_MAP[lead.websiteStatus].label,
-        ...lead.tags.map((t) => t.name),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
-    });
+  const filters = useMemo<LeadFilters>(() => {
+    const from = addedDateFilter?.from;
+    const to = addedDateFilter?.to ?? from;
+    return {
+      search: search.trim() || undefined,
+      status: statusFilter === "all" ? undefined : statusFilter,
+      websiteStatus:
+        websiteStatusFilter === "all"
+          ? undefined
+          : (websiteStatusFilter as LeadFilters["websiteStatus"]),
+      tagId: tagFilter === "all" ? undefined : tagFilter,
+      createdFrom: from ? startOfDay(from).toISOString() : undefined,
+      createdTo: to ? endOfDay(to).toISOString() : undefined,
+    };
   }, [
     addedDateFilter,
-    leads,
     search,
     statusFilter,
     tagFilter,
     websiteStatusFilter,
   ]);
 
-  const openLead = openId != null ? leads.find((l) => l.id === openId) : null;
+  const hasFilters = Object.values(filters).some(Boolean);
+  const filtersKey = JSON.stringify(filters);
+  const activeFiltersKey = useRef(filtersKey);
+
+  useEffect(() => {
+    activeFiltersKey.current = filtersKey;
+  }, [filtersKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timeout = window.setTimeout(
+      () => {
+        if (!hasFilters) {
+          setLeads(initialPage.leads);
+          setTotal(initialPage.total ?? initialPage.leads.length);
+          setNextCursor(initialPage.nextCursor);
+          setIsFiltering(false);
+          return;
+        }
+
+        setIsFiltering(true);
+        void loadLeadsPage({ filters })
+          .then((result) => {
+            if (cancelled) return;
+            if ("error" in result) {
+              toast.error(result.error);
+              setIsFiltering(false);
+              return;
+            }
+            setLeads(result.leads);
+            setTotal(result.total ?? result.leads.length);
+            setNextCursor(result.nextCursor);
+            setSelectedIds(new Set());
+            setIsFiltering(false);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            toast.error("No se pudieron cargar los leads.");
+            setIsFiltering(false);
+          });
+      },
+      search.trim() ? 250 : 0
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [filters, hasFilters, initialPage, search]);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || isLoadingMore || isFiltering) return;
+    const requestedFiltersKey = filtersKey;
+    setIsLoadingMore(true);
+    try {
+      const result = await loadLeadsPage({ cursor: nextCursor, filters });
+      if (requestedFiltersKey !== activeFiltersKey.current) return;
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+
+      setLeads((current) => {
+        const existingIds = new Set(current.map((lead) => lead.id));
+        return [
+          ...current,
+          ...result.leads.filter((lead) => !existingIds.has(lead.id)),
+        ];
+      });
+      setNextCursor(result.nextCursor);
+    } catch {
+      if (requestedFiltersKey === activeFiltersKey.current) {
+        toast.error("No se pudieron cargar más leads.");
+      }
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [filters, filtersKey, isFiltering, isLoadingMore, nextCursor]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !nextCursor || isFiltering) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) void loadMore();
+      },
+      { rootMargin: "400px 0px" }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [isFiltering, loadMore, nextCursor]);
+
+  const filtered = leads;
+
+  const openLead =
+    openId != null
+      ? (leads.find((lead) => lead.id === openId) ??
+        (initialOpenLead?.id === openId ? initialOpenLead : null))
+      : null;
   const activeTag = tagFilter !== "all" ? tags.find((t) => t.id === tagFilter) : null;
-  const leadCreatedDates = useMemo(
-    () => leads.map((lead) => lead.createdAt),
-    [leads]
-  );
   const selectedCount = selectedIds.size;
   const activeFilterCount = [
     statusFilter !== "all",
     websiteStatusFilter !== "all",
     tagFilter !== "all",
+    Boolean(addedDateFilter?.from),
   ].filter(Boolean).length;
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((lead) => selectedIds.has(lead.id));
@@ -353,15 +446,17 @@ export function LeadsView({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
 
+            <AddedDateFilter
+              createdDates={createdDates}
+              today={today}
+              value={addedDateFilter}
+              onChange={setAddedDateFilter}
+            />
+
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <AddedDateFilter
-          createdDates={leadCreatedDates}
-          today={today}
-          value={addedDateFilter}
-          onChange={setAddedDateFilter}
-        />
+        <LeadImportDialog tags={tags} />
 
         {selectionMode ? (
           <Button variant="outline" onClick={closeSelectionMode}>
@@ -399,7 +494,14 @@ export function LeadsView({
         )}
 
         <span className="ml-auto text-sm text-muted-foreground">
-          {filtered.length} de {leads.length} leads
+          {isFiltering ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2Icon className="size-3.5 animate-spin" />
+              Buscando…
+            </span>
+          ) : (
+            `${filtered.length} de ${total} leads`
+          )}
         </span>
       </div>
 
@@ -454,7 +556,7 @@ export function LeadsView({
               </TableHead>
               <TableHead className="hidden lg:table-cell">Etiquetas</TableHead>
               <TableHead className="hidden md:table-cell">Web</TableHead>
-              <TableHead className="hidden xl:table-cell">Notas</TableHead>
+              <TableHead className="hidden xl:table-cell">Teléfono</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="hidden sm:table-cell">Contacto</TableHead>
               <TableHead>Follow-up</TableHead>
@@ -462,7 +564,20 @@ export function LeadsView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.length === 0 && (
+            {isFiltering && (
+              <TableRow>
+                <TableCell
+                  colSpan={selectionMode ? 9 : 8}
+                  className="h-32 text-center"
+                >
+                  <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2Icon className="size-4 animate-spin" />
+                    Cargando leads…
+                  </span>
+                </TableCell>
+              </TableRow>
+            )}
+            {!isFiltering && filtered.length === 0 && (
               <TableRow>
                 <TableCell
                   colSpan={selectionMode ? 9 : 8}
@@ -478,7 +593,7 @@ export function LeadsView({
                 </TableCell>
               </TableRow>
             )}
-            {filtered.map((lead) => {
+            {!isFiltering && filtered.map((lead) => {
               const overdue = isFollowUpOverdue(lead.followUpDate, lead.status);
               const today = isFollowUpToday(lead.followUpDate, lead.status);
               return (
@@ -526,10 +641,19 @@ export function LeadsView({
                       status={lead.websiteStatus}
                     />
                   </TableCell>
-                  <TableCell className="hidden max-w-72 xl:table-cell">
-                    <p className="truncate text-muted-foreground">
-                      {lead.notes?.trim() || lead.problem?.trim() || "—"}
-                    </p>
+                  <TableCell className="hidden whitespace-nowrap text-muted-foreground xl:table-cell">
+                    {lead.phone ? (
+                      <a
+                        href={`tel:${lead.phone}`}
+                        className="inline-flex items-center gap-1.5 hover:text-foreground hover:underline"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <PhoneIcon className="size-3.5" />
+                        {lead.phone}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell>
                     <StatusSelect leadId={lead.id} status={lead.status} />
@@ -596,6 +720,27 @@ export function LeadsView({
             })}
           </TableBody>
         </Table>
+      </div>
+
+      <div
+        ref={loadMoreRef}
+        className="flex min-h-16 items-center justify-center py-3"
+      >
+        {nextCursor && !isFiltering ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void loadMore()}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore && <Loader2Icon className="animate-spin" />}
+            {isLoadingMore ? "Cargando…" : "Cargar más leads"}
+          </Button>
+        ) : !isFiltering && filtered.length > 0 ? (
+          <span className="text-xs text-muted-foreground">
+            Se han cargado todos los leads.
+          </span>
+        ) : null}
       </div>
 
       <LeadSheet

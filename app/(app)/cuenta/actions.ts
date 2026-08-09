@@ -101,3 +101,83 @@ export async function updatePassword(
 
   return { status: "success", message: "Contraseña actualizada." };
 }
+
+type TagMutationResult =
+  | { success: true }
+  | { error: string }
+  | { requiresConfirmation: true; associatedCount: number };
+
+function validTagId(tagId: number) {
+  return Number.isSafeInteger(tagId) && tagId > 0;
+}
+
+export async function renameTag(
+  tagId: number,
+  nextName: string
+): Promise<TagMutationResult> {
+  if (!validTagId(tagId)) return { error: "La etiqueta no es válida." };
+
+  const name = nextName.trim();
+  if (!name) return { error: "Introduce un nombre para la etiqueta." };
+  if (name.length > 80) {
+    return { error: "El nombre no puede superar los 80 caracteres." };
+  }
+
+  const supabase = await getAuthenticatedClient();
+  if (!supabase) return { error: "Tu sesión ha caducado." };
+
+  const { data, error } = await supabase
+    .from("tags")
+    .update({ name })
+    .eq("id", tagId)
+    .select("id")
+    .maybeSingle();
+
+  if (error?.code === "23505") {
+    return { error: "Ya existe una etiqueta con ese nombre." };
+  }
+  if (error || !data) {
+    return { error: "No se pudo renombrar la etiqueta." };
+  }
+
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+export async function deleteTag(
+  tagId: number,
+  confirmAssociatedItems = false
+): Promise<TagMutationResult> {
+  if (!validTagId(tagId)) return { error: "La etiqueta no es válida." };
+
+  const supabase = await getAuthenticatedClient();
+  if (!supabase) return { error: "Tu sesión ha caducado." };
+
+  const { count, error: countError } = await supabase
+    .from("lead_tags")
+    .select("tag_id", { count: "exact", head: true })
+    .eq("tag_id", tagId);
+
+  if (countError) {
+    return { error: "No se pudo comprobar el uso de la etiqueta." };
+  }
+
+  const associatedCount = count ?? 0;
+  if (associatedCount > 0 && !confirmAssociatedItems) {
+    return { requiresConfirmation: true, associatedCount };
+  }
+
+  const { data, error } = await supabase
+    .from("tags")
+    .delete()
+    .eq("id", tagId)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { error: "No se pudo eliminar la etiqueta." };
+  }
+
+  revalidatePath("/", "layout");
+  return { success: true };
+}

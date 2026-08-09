@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSyncExternalStore } from "react";
 import {
   ChartPieIcon,
   MapIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
   PlusIcon,
   SearchIcon,
   UserRoundIcon,
@@ -22,13 +25,85 @@ const NAV_ITEMS = [
   { href: "/mapa", label: "Mapa", icon: MapIcon },
 ];
 
+const SIDEBAR_COLLAPSED_KEY = "ibstudio-sidebar-collapsed:v1";
+const SIDEBAR_COLLAPSED_EVENT = "ibstudio:sidebar-collapsed-change";
+let sidebarPreferenceCache: boolean | null = null;
+
+function subscribeToSidebarPreference(onStoreChange: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== SIDEBAR_COLLAPSED_KEY) return;
+    sidebarPreferenceCache = null;
+    onStoreChange();
+  };
+
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(SIDEBAR_COLLAPSED_EVENT, onStoreChange);
+
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(SIDEBAR_COLLAPSED_EVENT, onStoreChange);
+  };
+}
+
+function getSidebarPreference() {
+  if (sidebarPreferenceCache !== null) return sidebarPreferenceCache;
+
+  try {
+    sidebarPreferenceCache =
+      localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  } catch {
+    sidebarPreferenceCache = false;
+  }
+
+  return sidebarPreferenceCache;
+}
+
+function getServerSidebarPreference() {
+  return false;
+}
+
 export function AppSidebar({ email, name }: { email: string; name: string }) {
   const pathname = usePathname();
+  const collapsed = useSyncExternalStore(
+    subscribeToSidebarPreference,
+    getSidebarPreference,
+    getServerSidebarPreference
+  );
+
+  const updateCollapsed = (nextCollapsed: boolean) => {
+    sidebarPreferenceCache = nextCollapsed;
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(nextCollapsed));
+    } catch {
+      // The in-memory preference still works when storage is unavailable.
+    }
+    window.dispatchEvent(new Event(SIDEBAR_COLLAPSED_EVENT));
+  };
 
   return (
     <>
       <MobileBar pathname={pathname} />
-      <DesktopSidebar pathname={pathname} email={email} name={name} />
+      <DesktopSidebar
+        pathname={pathname}
+        email={email}
+        name={name}
+        collapsed={collapsed}
+        onCollapse={() => updateCollapsed(true)}
+      />
+      {collapsed ? (
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => updateCollapsed(false)}
+          className="fixed top-4 left-4 z-40 hidden bg-background/90 shadow-sm backdrop-blur-sm md:inline-flex"
+          aria-label="Mostrar barra lateral"
+          aria-controls="app-sidebar"
+          aria-expanded={false}
+          title="Mostrar barra lateral"
+        >
+          <PanelLeftOpenIcon />
+        </Button>
+      ) : null}
     </>
   );
 }
@@ -93,10 +168,14 @@ function DesktopSidebar({
   pathname,
   email,
   name,
+  collapsed,
+  onCollapse,
 }: {
   pathname: string;
   email: string;
   name: string;
+  collapsed: boolean;
+  onCollapse: () => void;
 }) {
   const initials = name
     .split(/\s+/)
@@ -105,11 +184,30 @@ function DesktopSidebar({
     .join("");
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
-      <div className="px-5 pt-6 pb-4">
+    <aside
+      id="app-sidebar"
+      data-collapsed={collapsed}
+      className={cn(
+        "peer fixed inset-y-0 left-0 z-40 hidden w-[232px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-200 motion-reduce:transition-none md:flex",
+        collapsed && "-translate-x-full"
+      )}
+    >
+      <div className="flex items-center gap-2 px-3 pt-4 pb-4 pl-5">
         <div className="text-2xl font-semibold tracking-tight">
           IB&nbsp;Studio
         </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onCollapse}
+          className="ml-auto text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          aria-label="Ocultar barra lateral"
+          aria-controls="app-sidebar"
+          aria-expanded={true}
+          title="Ocultar barra lateral"
+        >
+          <PanelLeftCloseIcon />
+        </Button>
       </div>
 
       <div className="px-3 pb-2">

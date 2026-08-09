@@ -1,7 +1,12 @@
 import { LeadsView } from "@/components/leads-view";
 import { PageHeader } from "@/components/page-header";
 import { todayISO } from "@/lib/dates";
-import { getAllTags, getLeadsWithTags } from "@/lib/queries";
+import {
+  getAllTags,
+  getLeadsPage,
+  getLeadWithTags,
+  getRecentLeadCreatedDates,
+} from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +16,17 @@ export default async function LeadsPage({
   searchParams: Promise<{ open?: string }>;
 }) {
   const { open } = await searchParams;
-  const [leads, tags] = await Promise.all([
-    getLeadsWithTags(),
+  const parsedOpenId = open ? Number(open) : undefined;
+  const initialOpenId =
+    parsedOpenId != null && Number.isSafeInteger(parsedOpenId) && parsedOpenId > 0
+      ? parsedOpenId
+      : undefined;
+  const [initialPage, tags, createdDates, initialOpenLead] = await Promise.all([
+    getLeadsPage(),
     getAllTags(),
+    getRecentLeadCreatedDates(),
+    initialOpenId ? getLeadWithTags(initialOpenId) : null,
   ]);
-  const initialOpenId = open ? Number(open) : undefined;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-8">
@@ -24,14 +35,12 @@ export default async function LeadsPage({
         subtitle="Todos los negocios detectados y su estado de contacto."
       />
       <LeadsView
-        leads={leads}
+        initialPage={initialPage}
         tags={tags}
         today={todayISO()}
-        initialOpenId={
-          initialOpenId != null && !Number.isNaN(initialOpenId)
-            ? initialOpenId
-            : undefined
-        }
+        createdDates={createdDates}
+        initialOpenId={initialOpenId}
+        initialOpenLead={initialOpenLead}
       />
     </div>
   );

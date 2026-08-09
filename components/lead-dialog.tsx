@@ -5,7 +5,6 @@ import {
   AtSignIcon,
   CheckIcon,
   ChevronDownIcon,
-  ClipboardPasteIcon,
   Loader2Icon,
   MapPinIcon,
 } from "lucide-react";
@@ -45,7 +44,6 @@ import {
 import { todayISO } from "@/lib/dates";
 import {
   googleMapsLeadToFormData,
-  parseGoogleMapsLead,
   type GoogleMapsLead,
 } from "@/lib/google-maps-lead";
 import { parseInstagramUsername, parseMapsCoordinates } from "@/lib/parse";
@@ -146,8 +144,6 @@ export function LeadDialog({
   const [geoLoading, setGeoLoading] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [showContactDateNotice, setShowContactDateNotice] = useState(false);
-  const [mapsPaste, setMapsPaste] = useState("");
-  const [mapsPasteError, setMapsPasteError] = useState("");
   const [saving, startSaving] = useTransition();
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -172,8 +168,6 @@ export function LeadDialog({
       );
       setGeoResults([]);
       setShowContactDateNotice(false);
-      setMapsPaste("");
-      setMapsPasteError("");
       setAdvanced(
         Boolean(
           importedMapsLead ||
@@ -210,29 +204,6 @@ export function LeadDialog({
       lat: coords?.lat ?? null,
       lng: coords?.lng ?? null,
     }));
-  };
-
-  const fillFromMaps = (leadData: GoogleMapsLead) => {
-    const imported = googleMapsLeadToFormData(leadData);
-    setForm((current) => ({
-      ...current,
-      ...imported,
-    }));
-    setMapsPaste("");
-    setMapsPasteError("");
-    setAdvanced(true);
-    toast.success(`Datos de «${leadData.name}» rellenados`);
-  };
-
-  const importMapsPaste = () => {
-    const parsed = parseGoogleMapsLead(mapsPaste);
-    if (!parsed) {
-      setMapsPasteError(
-        "El texto no tiene el formato IBSTUDIO_CRM_LEAD_V1 del extractor de Maps."
-      );
-      return;
-    }
-    fillFromMaps(parsed);
   };
 
   const handleGeocode = async () => {
@@ -500,56 +471,6 @@ export function LeadDialog({
 
           {advanced && (
             <div className="grid gap-3.5 border-t pt-3.5">
-              {!isEdit && (
-                <div className="grid gap-1.5 rounded-xl border bg-muted/30 p-3">
-                  <div className="flex items-center gap-2">
-                    <ClipboardPasteIcon className="size-4 text-muted-foreground" />
-                    <Label htmlFor="lead-maps-import">
-                      Importar datos de Maps
-                    </Label>
-                  </div>
-                  <Textarea
-                    id="lead-maps-import"
-                    name="lead-maps-import"
-                    rows={3}
-                    value={mapsPaste}
-                    onChange={(e) => {
-                      setMapsPaste(e.target.value);
-                      setMapsPasteError("");
-                    }}
-                    placeholder="Pega aquí el texto IBSTUDIO_CRM_LEAD_V1…"
-                    aria-invalid={Boolean(mapsPasteError)}
-                    aria-describedby={
-                      mapsPasteError ? "lead-maps-import-error" : undefined
-                    }
-                    {...NO_AUTOCOMPLETE}
-                  />
-                  {mapsPasteError && (
-                    <p
-                      id="lead-maps-import-error"
-                      className="text-xs text-destructive"
-                      role="alert"
-                    >
-                      {mapsPasteError}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-muted-foreground">
-                      Usa el marcador extractor sobre la ficha del negocio.
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={!mapsPaste.trim()}
-                      onClick={importMapsPaste}
-                    >
-                      Rellenar
-                    </Button>
-                  </div>
-                </div>
-              )}
-
               <div className="grid gap-1.5">
                 <Label>Estado</Label>
                 <Select
