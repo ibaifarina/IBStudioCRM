@@ -1,5 +1,5 @@
 import { revalidatePath } from "next/cache";
-import { TAG_COLORS } from "@/lib/config";
+import { isUncontactedStatus, TAG_COLORS } from "@/lib/config";
 import {
   CsvImportError,
   parseLeadsCsv,
@@ -225,10 +225,9 @@ export async function POST(request: Request) {
       problem: lead.problem,
       notes: lead.notes,
       status: lead.status,
-      contact_date:
-        lead.status === "por_contactar"
-          ? null
-          : (lead.contactDate ?? now.slice(0, 10)),
+      contact_date: isUncontactedStatus(lead.status)
+        ? null
+        : (lead.contactDate ?? now.slice(0, 10)),
       follow_up_date: lead.followUpDate,
       created_at: lead.createdAt ?? now,
       updated_at: lead.updatedAt ?? lead.createdAt ?? now,

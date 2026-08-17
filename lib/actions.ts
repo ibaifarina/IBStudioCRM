@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import {
   TAG_COLORS,
+  isUncontactedStatus,
   isValidStatus,
   isValidWebsiteStatus,
 } from "@/lib/config";
@@ -76,10 +77,9 @@ export async function saveLead(
     return { error: "Estado de la web no válido." };
   }
 
-  let contactDate =
-    input.status === "por_contactar"
-      ? null
-      : (clean(input.contactDate) ?? today());
+  let contactDate = isUncontactedStatus(input.status)
+    ? null
+    : (clean(input.contactDate) ?? today());
 
   if (input.id && input.status === "contactado") {
     const { data: currentLead, error: readError } = await auth.supabase
@@ -254,12 +254,11 @@ export async function setLeadStatus(
 
   if (readError || !lead) return { error: "No se encontró el lead." };
 
-  const contactDate =
-    status === "por_contactar"
-      ? null
-      : status === "contactado" && lead.status !== "contactado"
-        ? today()
-        : (lead.contact_date ?? today());
+  const contactDate = isUncontactedStatus(status)
+    ? null
+    : status === "contactado" && lead.status !== "contactado"
+      ? today()
+      : (lead.contact_date ?? today());
   const { error } = await auth.supabase
     .from("leads")
     .update({
@@ -389,7 +388,7 @@ export async function updateLeadsBulk(
 
   if (hasStatus) {
     leadValues.status = input.status;
-    if (input.status === "por_contactar") leadValues.contact_date = null;
+    if (isUncontactedStatus(input.status!)) leadValues.contact_date = null;
   }
   if (hasWebsiteStatus) leadValues.website_status = input.websiteStatus;
   if (hasFollowUpDate) leadValues.follow_up_date = clean(input.followUpDate);
@@ -408,7 +407,7 @@ export async function updateLeadsBulk(
       return { error: "No se pudieron actualizar los leads." };
     }
 
-    if (input.status && input.status !== "por_contactar") {
+    if (input.status && !isUncontactedStatus(input.status)) {
       const needsContactDate = ownedLeads
         .filter((lead) =>
           input.status === "contactado"

@@ -37,6 +37,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { geocodeAddress, saveLead } from "@/lib/actions";
 import {
+  isUncontactedStatus,
   STATUSES,
   WEBSITE_STATUSES,
   type WebsiteStatusKey,
@@ -82,7 +83,7 @@ function fromLead(lead: LeadWithTags): FormState {
     notes,
     status: lead.status,
     contactDate:
-      lead.contactDate ?? (lead.status !== "por_contactar" ? todayISO() : ""),
+      lead.contactDate ?? (!isUncontactedStatus(lead.status) ? todayISO() : ""),
     followUpDate: lead.followUpDate ?? "",
     tags: lead.tags,
   };
@@ -243,7 +244,7 @@ export function LeadDialog({
         problem: null,
         notes: form.notes,
         status: form.status,
-        contactDate: form.status === "por_contactar" ? "" : form.contactDate,
+        contactDate: isUncontactedStatus(form.status) ? "" : form.contactDate,
         followUpDate: form.followUpDate,
         tagIds: form.tags.map((t) => t.id),
       });
@@ -484,7 +485,7 @@ export function LeadDialog({
                       ...current,
                       status: v,
                       contactDate:
-                        v === "por_contactar"
+                        isUncontactedStatus(v)
                           ? ""
                           : changedToContacted || !current.contactDate
                             ? todayISO()
@@ -512,7 +513,7 @@ export function LeadDialog({
                 </Select>
               </div>
 
-              {form.status !== "por_contactar" && (
+              {!isUncontactedStatus(form.status) && (
                 <div className="grid gap-1.5">
                   <Label>Fecha de contacto</Label>
                   <DateField

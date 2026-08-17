@@ -18,7 +18,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { PENDING_STATUSES, STATUSES, type StatusKey } from "@/lib/config";
+import {
+  isUncontactedStatus,
+  PENDING_STATUSES,
+  STATUSES,
+  type StatusKey,
+} from "@/lib/config";
 import { formatDateShort, isFollowUpOverdue, todayISO } from "@/lib/dates";
 import { getLeadsWithTags } from "@/lib/queries";
 import type { LeadWithTags } from "@/lib/types";
@@ -28,7 +33,9 @@ export const dynamic = "force-dynamic";
 
 function buildStats(leads: LeadWithTags[]) {
   const total = leads.length;
-  const contacted = leads.filter((l) => l.status !== "por_contactar").length;
+  const contacted = leads.filter(
+    (lead) => !isUncontactedStatus(lead.status)
+  ).length;
   const responded = leads.filter(
     (l) => l.status === "respondio" || l.status === "cliente"
   ).length;

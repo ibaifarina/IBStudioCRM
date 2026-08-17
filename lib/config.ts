@@ -1,5 +1,10 @@
 export const STATUSES = [
   { value: "por_contactar", label: "Por contactar", color: "#64748b" },
+  {
+    value: "revisar_mas_tarde",
+    label: "Revisar más tarde",
+    color: "#7c3aed",
+  },
   { value: "contactado", label: "Contactado", color: "#d97f06" },
   { value: "seguimiento", label: "Seguimiento", color: "#ea580c" },
   { value: "respondio", label: "Respondió", color: "#0891b2" },
@@ -17,9 +22,14 @@ export const STATUS_MAP: Record<StatusKey, { label: string; color: string }> =
 /** Estados en los que un follow-up sigue teniendo sentido */
 export const PENDING_STATUSES: StatusKey[] = [
   "por_contactar",
+  "revisar_mas_tarde",
   "contactado",
   "seguimiento",
 ];
+
+export function isUncontactedStatus(status: string): boolean {
+  return status === "por_contactar" || status === "revisar_mas_tarde";
+}
 
 export const WEBSITE_STATUSES = [
   { value: "sin_revisar", label: "Sin revisar", color: "#64748b" },

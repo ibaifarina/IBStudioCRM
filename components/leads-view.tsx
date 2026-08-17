@@ -18,6 +18,7 @@ import {
   GlobeIcon,
   Loader2Icon,
   MapPinIcon,
+  MessageCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PhoneIcon,
@@ -94,6 +95,11 @@ import { cn } from "@/lib/utils";
 
 function instagramUrl(handle: string) {
   return `https://instagram.com/${handle.replace(/^@/, "")}`;
+}
+
+function whatsappUrl(phone: string) {
+  const digits = phone.replace(/\D/g, "").replace(/^00/, "");
+  return `https://wa.me/${digits}`;
 }
 
 function mapsUrl(lead: LeadWithTags) {
@@ -873,6 +879,22 @@ function LeadSheet({
                   >
                     <PhoneIcon className="size-3" />
                     {lead.phone}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </InfoRow>
+              <InfoRow label="WhatsApp">
+                {lead.phone ? (
+                  <a
+                    href={whatsappUrl(lead.phone)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-brand hover:underline"
+                  >
+                    <MessageCircleIcon className="size-3" />
+                    Abrir chat
+                    <ExternalLinkIcon className="size-3" />
                   </a>
                 ) : (
                   "—"
