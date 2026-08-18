@@ -69,9 +69,11 @@ export function StatusBadge({
 export function StatusSelect({
   leadId,
   status,
+  onStatusChange,
 }: {
   leadId: number;
   status: string;
+  onStatusChange?: (status: string, contactDate: string | null) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const info = STATUS_MAP[status as StatusKey];
@@ -107,6 +109,7 @@ export function StatusSelect({
                   toast.error(result.error);
                   return;
                 }
+                onStatusChange?.(s.value, result.contactDate ?? null);
                 if (s.value === "contactado" && status !== "contactado") {
                   showContactDateNoticeToast();
                 }

@@ -82,6 +82,7 @@ import {
   STATUSES,
   WEBSITE_STATUSES,
   WEBSITE_STATUS_MAP,
+  type WebsiteStatusKey,
 } from "@/lib/config";
 import { formatDate, formatDateShort, isFollowUpOverdue, isFollowUpToday } from "@/lib/dates";
 import { openNewLead } from "@/lib/events";
@@ -154,6 +155,8 @@ export function LeadsView({
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [openLeadOverride, setOpenLeadOverride] =
+    useState<LeadWithTags | null>(null);
 
   // Sincroniza ?open=<id> de la URL (p. ej. al llegar desde la paleta ⌘K).
   const [prevInitial, setPrevInitial] = useState(initialOpenId);
@@ -279,10 +282,75 @@ export function LeadsView({
 
   const filtered = leads;
 
+  const updateLeadStatus = useCallback(
+    (leadId: number, status: string, contactDate: string | null) => {
+      const update = (lead: LeadWithTags) =>
+        lead.id === leadId ? { ...lead, status, contactDate } : lead;
+      const remainsVisible =
+        statusFilter === "all" || status === statusFilter;
+      const wasVisible = leads.some((lead) => lead.id === leadId);
+      setLeads((current) =>
+        remainsVisible
+          ? current.map(update)
+          : current.filter((lead) => lead.id !== leadId)
+      );
+      if (!remainsVisible && wasVisible) {
+        setTotal((current) =>
+          current == null ? current : Math.max(0, current - 1)
+        );
+      }
+      setOpenLeadOverride((current) => {
+        const candidate =
+          current?.id === leadId
+            ? current
+            : initialOpenLead?.id === leadId
+              ? initialOpenLead
+              : null;
+        return candidate ? update(candidate) : current;
+      });
+    },
+    [initialOpenLead, leads, statusFilter]
+  );
+
+  const updateLeadWebsiteStatus = useCallback(
+    (leadId: number, websiteStatus: WebsiteStatusKey) => {
+      const update = (lead: LeadWithTags) =>
+        lead.id === leadId ? { ...lead, websiteStatus } : lead;
+      const remainsVisible =
+        websiteStatusFilter === "all" ||
+        websiteStatus === websiteStatusFilter;
+      const wasVisible = leads.some((lead) => lead.id === leadId);
+      setLeads((current) =>
+        remainsVisible
+          ? current.map(update)
+          : current.filter((lead) => lead.id !== leadId)
+      );
+      if (!remainsVisible && wasVisible) {
+        setTotal((current) =>
+          current == null ? current : Math.max(0, current - 1)
+        );
+      }
+      setOpenLeadOverride((current) => {
+        const candidate =
+          current?.id === leadId
+            ? current
+            : initialOpenLead?.id === leadId
+              ? initialOpenLead
+              : null;
+        return candidate ? update(candidate) : current;
+      });
+    },
+    [initialOpenLead, leads, websiteStatusFilter]
+  );
+
   const openLead =
     openId != null
       ? (leads.find((lead) => lead.id === openId) ??
-        (initialOpenLead?.id === openId ? initialOpenLead : null))
+        (openLeadOverride?.id === openId
+          ? openLeadOverride
+          : initialOpenLead?.id === openId
+            ? initialOpenLead
+            : null))
       : null;
   const activeTag = tagFilter !== "all" ? tags.find((t) => t.id === tagFilter) : null;
   const selectedCount = selectedIds.size;
@@ -645,6 +713,9 @@ export function LeadsView({
                     <WebsiteStatusSelect
                       leadId={lead.id}
                       status={lead.websiteStatus}
+                      onStatusChange={(status) =>
+                        updateLeadWebsiteStatus(lead.id, status)
+                      }
                     />
                   </TableCell>
                   <TableCell className="hidden whitespace-nowrap text-muted-foreground xl:table-cell">
@@ -662,7 +733,13 @@ export function LeadsView({
                     )}
                   </TableCell>
                   <TableCell>
-                    <StatusSelect leadId={lead.id} status={lead.status} />
+                    <StatusSelect
+                      leadId={lead.id}
+                      status={lead.status}
+                      onStatusChange={(status, contactDate) =>
+                        updateLeadStatus(lead.id, status, contactDate)
+                      }
+                    />
                   </TableCell>
                   <TableCell className="hidden text-muted-foreground sm:table-cell">
                     {formatDateShort(lead.contactDate)}
@@ -754,6 +831,7 @@ export function LeadsView({
         onClose={closeSheet}
         onEdit={(lead) => setEditing(lead)}
         onDelete={(lead) => setDeleting(lead)}
+        onStatusChange={updateLeadStatus}
       />
 
       <BulkEditLeadsDialog
@@ -810,11 +888,17 @@ function LeadSheet({
   onClose,
   onEdit,
   onDelete,
+  onStatusChange,
 }: {
   lead: LeadWithTags | null;
   onClose: () => void;
   onEdit: (lead: LeadWithTags) => void;
   onDelete: (lead: LeadWithTags) => void;
+  onStatusChange: (
+    leadId: number,
+    status: string,
+    contactDate: string | null
+  ) => void;
 }) {
   return (
     <Sheet open={lead != null} onOpenChange={(open) => !open && onClose()}>
@@ -829,7 +913,13 @@ function LeadSheet({
                 Detalle del lead
               </SheetDescription>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <StatusSelect leadId={lead.id} status={lead.status} />
+                <StatusSelect
+                  leadId={lead.id}
+                  status={lead.status}
+                  onStatusChange={(status, contactDate) =>
+                    onStatusChange(lead.id, status, contactDate)
+                  }
+                />
                 <WebsiteStatusBadge status={lead.websiteStatus} />
                 {lead.tags.map((tag) => (
                   <TagBadge key={tag.id} tag={tag} />

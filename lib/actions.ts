@@ -240,7 +240,7 @@ export async function deleteLeadsBulk(
 export async function setLeadStatus(
   id: number,
   status: string
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; contactDate?: string | null }> {
   if (!isValidStatus(status)) return { error: "Estado no válido." };
 
   const auth = await getAuthenticatedClient();
@@ -270,8 +270,7 @@ export async function setLeadStatus(
 
   if (error) return { error: "No se pudo cambiar el estado." };
 
-  revalidateCrm();
-  return {};
+  return { contactDate };
 }
 
 export async function setLeadWebsiteStatus(
@@ -300,7 +299,6 @@ export async function setLeadWebsiteStatus(
     return { error: "No se pudo cambiar el estado de la web." };
   }
 
-  revalidateCrm();
   return {};
 }
 

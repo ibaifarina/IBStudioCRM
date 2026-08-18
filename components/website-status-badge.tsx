@@ -94,9 +94,11 @@ export function WebsiteStatusBadge({
 export function WebsiteStatusSelect({
   leadId,
   status,
+  onStatusChange,
 }: {
   leadId: number;
   status: WebsiteStatusKey;
+  onStatusChange?: (status: WebsiteStatusKey) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const info = WEBSITE_STATUS_MAP[status];
@@ -127,7 +129,11 @@ export function WebsiteStatusSelect({
               event.stopPropagation();
               startTransition(async () => {
                 const result = await setLeadWebsiteStatus(leadId, item.value);
-                if (result.error) toast.error(result.error);
+                if (result.error) {
+                  toast.error(result.error);
+                  return;
+                }
+                onStatusChange?.(item.value);
               });
             }}
           >
