@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Bar, BarChart, Cell, LabelList, Pie, PieChart, XAxis, YAxis } from "recharts";
 import {
   ChartContainer,
@@ -9,7 +10,7 @@ import {
 } from "@/components/ui/chart";
 
 export type StatusDatum = { key: string; label: string; value: number; color: string };
-export type WeekDatum = { week: string; label: string; value: number };
+export type ContactDatum = { date: string; label: string; value: number };
 export type TagDatum = { name: string; value: number; color: string };
 
 const chartConfig = {
@@ -50,39 +51,71 @@ export function StatusChart({ data }: { data: StatusDatum[] }) {
   );
 }
 
-export function WeeklyChart({ data }: { data: WeekDatum[] }) {
+export function ContactsChart({
+  weeklyData,
+  monthlyData,
+}: {
+  weeklyData: ContactDatum[];
+  monthlyData: ContactDatum[];
+}) {
+  const [period, setPeriod] = useState<"week" | "month">("week");
+  const data = period === "week" ? weeklyData : monthlyData;
+
   return (
-    <ChartContainer
-      config={chartConfig}
-      className="aspect-auto min-h-56 w-full flex-1 self-stretch"
-    >
-      <BarChart data={data} margin={{ left: 4, right: 4, top: 16, bottom: 0 }}>
-        <XAxis
-          dataKey="label"
-          tickLine={false}
-          axisLine={false}
-          tick={{ fontSize: 11 }}
-          interval={0}
-        />
-        <YAxis hide allowDecimals={false} />
-        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-        <Bar
-          dataKey="value"
-          fill="var(--brand)"
-          fillOpacity={0.85}
-          radius={[4, 4, 0, 0]}
-          maxBarSize={34}
+    <div className="flex w-full flex-col gap-3">
+      <div className="flex justify-end">
+        <div
+          className="inline-flex rounded-lg bg-muted p-0.5"
+          role="group"
+          aria-label="Periodo"
         >
-          <LabelList
-            dataKey="value"
-            position="top"
-            className="fill-muted-foreground"
-            fontSize={11}
-            formatter={(value) => (Number(value) > 0 ? value : "")}
+          {(["week", "month"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={period === option}
+              onClick={() => setPeriod(option)}
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm"
+            >
+              {option === "week" ? "Semana" : "Mes"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ChartContainer
+        config={chartConfig}
+        className="aspect-auto h-52 w-full"
+      >
+        <BarChart data={data} margin={{ left: 4, right: 4, top: 16, bottom: 0 }}>
+          <XAxis
+            dataKey="label"
+            tickLine={false}
+            axisLine={false}
+            tick={{ fontSize: 11 }}
+            interval={period === "week" ? 0 : 4}
           />
-        </Bar>
-      </BarChart>
-    </ChartContainer>
+          <YAxis hide allowDecimals={false} />
+          <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+          <Bar
+            dataKey="value"
+            fill="var(--brand)"
+            fillOpacity={0.85}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={period === "week" ? 34 : 18}
+          >
+            {period === "week" && (
+              <LabelList
+                dataKey="value"
+                position="top"
+                className="fill-muted-foreground"
+                fontSize={11}
+                formatter={(value) => (Number(value) > 0 ? value : "")}
+              />
+            )}
+          </Bar>
+        </BarChart>
+      </ChartContainer>
+    </div>
   );
 }
 

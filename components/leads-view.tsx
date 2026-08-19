@@ -12,6 +12,7 @@ import { endOfDay, startOfDay } from "date-fns";
 import { useRouter } from "next/navigation";
 import {
   AtSignIcon,
+  ArrowUpDownIcon,
   CheckIcon,
   ExternalLinkIcon,
   FilterIcon,
@@ -23,6 +24,7 @@ import {
   PencilIcon,
   PhoneIcon,
   PlusIcon,
+  RotateCcwIcon,
   SearchIcon,
   TagIcon,
   Trash2Icon,
@@ -34,6 +36,7 @@ import { AddedDateFilter } from "@/components/added-date-filter";
 import { BulkDeleteLeadsDialog } from "@/components/bulk-delete-leads-dialog";
 import { BulkEditLeadsDialog } from "@/components/bulk-edit-leads-dialog";
 import { LeadImportDialog } from "@/components/lead-import-dialog";
+import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
@@ -79,6 +82,7 @@ import {
 } from "@/components/ui/table";
 import { deleteLead } from "@/lib/actions";
 import {
+  LEAD_SORTS,
   STATUSES,
   WEBSITE_STATUSES,
   WEBSITE_STATUS_MAP,
@@ -89,6 +93,7 @@ import { openNewLead } from "@/lib/events";
 import type {
   LeadFilters,
   LeadPage,
+  LeadSort,
   LeadWithTags,
   Tag,
 } from "@/lib/types";
@@ -114,7 +119,7 @@ function mapsUrl(lead: LeadWithTags) {
 
 function FilterMenuValue({ children }: { children?: string }) {
   return (
-    <span className="ml-auto max-w-24 truncate text-right text-xs font-normal text-muted-foreground">
+    <span className="ml-auto max-w-32 truncate text-right text-xs font-normal text-muted-foreground">
       {children}
     </span>
   );
@@ -148,10 +153,12 @@ export function LeadsView({
     useState<string>("all");
   const [tagFilter, setTagFilter] = useState<number | "all">("all");
   const [addedDateFilter, setAddedDateFilter] = useState<DateRange>();
+  const [sort, setSort] = useState<LeadSort>("updated_desc");
   const [openId, setOpenId] = useState<number | null>(initialOpenId ?? null);
   const [editing, setEditing] = useState<LeadWithTags | null>(null);
   const [deleting, setDeleting] = useState<LeadWithTags | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const selectionAnchorRef = useRef<number | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -188,18 +195,19 @@ export function LeadsView({
   ]);
 
   const hasFilters = Object.values(filters).some(Boolean);
-  const filtersKey = JSON.stringify(filters);
-  const activeFiltersKey = useRef(filtersKey);
+  const isDefaultQuery = !hasFilters && sort === "updated_desc";
+  const queryKey = JSON.stringify({ filters, sort });
+  const activeQueryKey = useRef(queryKey);
 
   useEffect(() => {
-    activeFiltersKey.current = filtersKey;
-  }, [filtersKey]);
+    activeQueryKey.current = queryKey;
+  }, [queryKey]);
 
   useEffect(() => {
     let cancelled = false;
     const timeout = window.setTimeout(
       () => {
-        if (!hasFilters) {
+        if (isDefaultQuery) {
           setLeads(initialPage.leads);
           setTotal(initialPage.total ?? initialPage.leads.length);
           setNextCursor(initialPage.nextCursor);
@@ -208,7 +216,7 @@ export function LeadsView({
         }
 
         setIsFiltering(true);
-        void loadLeadsPage({ filters })
+        void loadLeadsPage({ filters, sort })
           .then((result) => {
             if (cancelled) return;
             if ("error" in result) {
@@ -235,15 +243,15 @@ export function LeadsView({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [filters, hasFilters, initialPage, search]);
+  }, [filters, initialPage, isDefaultQuery, search, sort]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || isLoadingMore || isFiltering) return;
-    const requestedFiltersKey = filtersKey;
+    const requestedQueryKey = queryKey;
     setIsLoadingMore(true);
     try {
-      const result = await loadLeadsPage({ cursor: nextCursor, filters });
-      if (requestedFiltersKey !== activeFiltersKey.current) return;
+      const result = await loadLeadsPage({ cursor: nextCursor, filters, sort });
+      if (requestedQueryKey !== activeQueryKey.current) return;
       if ("error" in result) {
         toast.error(result.error);
         return;
@@ -258,13 +266,13 @@ export function LeadsView({
       });
       setNextCursor(result.nextCursor);
     } catch {
-      if (requestedFiltersKey === activeFiltersKey.current) {
+      if (requestedQueryKey === activeQueryKey.current) {
         toast.error("No se pudieron cargar más leads.");
       }
     } finally {
       setIsLoadingMore(false);
     }
-  }, [filters, filtersKey, isFiltering, isLoadingMore, nextCursor]);
+  }, [filters, isFiltering, isLoadingMore, nextCursor, queryKey, sort]);
 
   useEffect(() => {
     const target = loadMoreRef.current;
@@ -353,6 +361,7 @@ export function LeadsView({
             : null))
       : null;
   const activeTag = tagFilter !== "all" ? tags.find((t) => t.id === tagFilter) : null;
+  const activeSort = LEAD_SORTS.find((item) => item.value === sort)!;
   const selectedCount = selectedIds.size;
   const activeFilterCount = [
     statusFilter !== "all",
@@ -364,16 +373,46 @@ export function LeadsView({
     filtered.length > 0 && filtered.every((lead) => selectedIds.has(lead.id));
   const someFilteredSelected = filtered.some((lead) => selectedIds.has(lead.id));
 
-  const toggleLead = (id: number) => {
+  const toggleLead = (id: number, extendSelection = false) => {
+    const singleSelectedId =
+      selectedIds.size === 1 ? selectedIds.values().next().value : null;
+    const anchorId = selectionAnchorRef.current ?? singleSelectedId;
+
+    if (extendSelection && anchorId != null) {
+      const anchorIndex = filtered.findIndex((lead) => lead.id === anchorId);
+      const targetIndex = filtered.findIndex((lead) => lead.id === id);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const start = Math.min(anchorIndex, targetIndex);
+        const end = Math.max(anchorIndex, targetIndex);
+        setSelectedIds((current) => {
+          const next = new Set(current);
+          for (let index = start; index <= end; index += 1) {
+            next.add(filtered[index].id);
+          }
+          return next;
+        });
+        selectionAnchorRef.current = id;
+        return;
+      }
+    }
+
     setSelectedIds((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        if (selectionAnchorRef.current === id) {
+          selectionAnchorRef.current = null;
+        }
+      } else {
+        next.add(id);
+        selectionAnchorRef.current = id;
+      }
       return next;
     });
   };
 
   const toggleAllFiltered = () => {
+    selectionAnchorRef.current = null;
     setSelectedIds((current) => {
       const next = new Set(current);
       if (allFilteredSelected) {
@@ -388,14 +427,76 @@ export function LeadsView({
   const closeSelectionMode = () => {
     setSelectionMode(false);
     setSelectedIds(new Set());
+    selectionAnchorRef.current = null;
   };
 
   const closeSheet = () => {
     setOpenId(null);
     if (typeof window !== "undefined" && window.location.search.includes("open=")) {
-      router.replace("/leads");
+      router.replace("/leads", { scroll: false });
     }
   };
+
+  const updateLead = useCallback((updatedLead: LeadWithTags) => {
+    setLeads((current) =>
+      current.map((lead) =>
+        lead.id === updatedLead.id ? updatedLead : lead
+      )
+    );
+    setOpenLeadOverride((current) => {
+      const isOpenFallback =
+        current?.id === updatedLead.id ||
+        initialOpenLead?.id === updatedLead.id;
+      return isOpenFallback ? updatedLead : current;
+    });
+    setEditing((current) =>
+      current?.id === updatedLead.id ? updatedLead : current
+    );
+  }, [initialOpenLead]);
+
+  const removeLead = useCallback((leadId: number) => {
+    setLeads((current) => current.filter((lead) => lead.id !== leadId));
+    setTotal((current) =>
+      current == null ? current : Math.max(0, current - 1)
+    );
+    setOpenLeadOverride((current) =>
+      current?.id === leadId ? null : current
+    );
+  }, []);
+
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setWebsiteStatusFilter("all");
+    setTagFilter("all");
+    setAddedDateFilter(undefined);
+    setSort("updated_desc");
+  };
+
+  const refreshVisibleLeads = useCallback(async () => {
+    setIsFiltering(true);
+    try {
+      const result = await loadLeadsPage({ filters, sort });
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      setLeads(result.leads);
+      setTotal(result.total ?? result.leads.length);
+      setNextCursor(result.nextCursor);
+      setSelectedIds(new Set());
+      selectionAnchorRef.current = null;
+      setOpenId(null);
+      setOpenLeadOverride(null);
+      setEditing(null);
+      setDeleting(null);
+      router.refresh();
+    } catch {
+      toast.error("Los cambios se restauraron, pero no se pudo actualizar la vista.");
+    } finally {
+      setIsFiltering(false);
+    }
+  }, [filters, router, sort]);
 
   return (
     <div>
@@ -415,7 +516,11 @@ export function LeadsView({
             render={
               <Button
                 variant="outline"
-                className={cn("gap-1.5", activeFilterCount > 0 && "bg-muted")}
+                className={cn(
+                  "gap-1.5",
+                  (activeFilterCount > 0 || sort !== "updated_desc") &&
+                    "bg-muted"
+                )}
               >
                 <FilterIcon className="size-3.5" />
                 Filtros
@@ -427,7 +532,30 @@ export function LeadsView({
               </Button>
             }
           />
-          <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <ArrowUpDownIcon />
+                <span>Ordenar por</span>
+                <FilterMenuValue>{activeSort.label}</FilterMenuValue>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-64">
+                {LEAD_SORTS.map((item) => (
+                  <DropdownMenuItem
+                    key={item.value}
+                    onClick={() => setSort(item.value)}
+                  >
+                    <CheckIcon
+                      className={cn(sort !== item.value && "opacity-0")}
+                    />
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSeparator />
+
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <FilterIcon />
@@ -527,10 +655,22 @@ export function LeadsView({
               onChange={setAddedDateFilter}
             />
 
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={resetFilters}
+              disabled={isDefaultQuery}
+            >
+              <RotateCcwIcon />
+              Restablecer filtros
+            </DropdownMenuItem>
+
           </DropdownMenuContent>
         </DropdownMenu>
 
         <LeadImportDialog tags={tags} />
+
+        <LeadHistoryDialog onRestored={refreshVisibleLeads} />
 
         {selectionMode ? (
           <Button variant="outline" onClick={closeSelectionMode}>
@@ -551,17 +691,12 @@ export function LeadsView({
           websiteStatusFilter !== "all" ||
           tagFilter !== "all" ||
           addedDateFilter?.from ||
+          sort !== "updated_desc" ||
           search) && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {
-              setSearch("");
-              setStatusFilter("all");
-              setWebsiteStatusFilter("all");
-              setTagFilter("all");
-              setAddedDateFilter(undefined);
-            }}
+            onClick={resetFilters}
           >
             Limpiar
           </Button>
@@ -584,7 +719,14 @@ export function LeadsView({
           <span className="mr-auto text-sm font-medium">
             {selectedCount} {selectedCount === 1 ? "lead seleccionado" : "leads seleccionados"}
           </span>
-          <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedIds(new Set());
+              selectionAnchorRef.current = null;
+            }}
+          >
             Deseleccionar
           </Button>
           <Button size="sm" onClick={() => setBulkEditing(true)}>
@@ -687,7 +829,13 @@ export function LeadsView({
                         role="checkbox"
                         aria-label={`Seleccionar ${lead.name}`}
                         checked={selectedIds.has(lead.id)}
-                        onChange={() => toggleLead(lead.id)}
+                        onChange={(event) =>
+                          toggleLead(
+                            lead.id,
+                            event.nativeEvent instanceof MouseEvent &&
+                              event.nativeEvent.shiftKey
+                          )
+                        }
                         className="size-4 cursor-pointer accent-primary"
                       />
                     </TableCell>
@@ -854,12 +1002,14 @@ export function LeadsView({
         onOpenChange={(open) => !open && setEditing(null)}
         allTags={tags}
         lead={editing}
+        onSaved={updateLead}
       />
 
       <DeleteDialog
         lead={deleting}
         onClose={() => setDeleting(null)}
-        onDeleted={() => {
+        onDeleted={(leadId) => {
+          removeLead(leadId);
           setDeleting(null);
           closeSheet();
         }}
@@ -1056,7 +1206,7 @@ function DeleteDialog({
 }: {
   lead: LeadWithTags | null;
   onClose: () => void;
-  onDeleted: () => void;
+  onDeleted: (leadId: number) => void;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -1066,8 +1216,8 @@ function DeleteDialog({
         <DialogHeader>
           <DialogTitle>¿Eliminar «{lead?.name}»?</DialogTitle>
           <DialogDescription>
-            Se borrará el lead con todas sus notas. Esta acción no se puede
-            deshacer.
+            Se borrará el lead con todas sus notas y etiquetas. Podrás
+            recuperarlo desde el historial de cambios.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -1086,7 +1236,7 @@ function DeleteDialog({
                   return;
                 }
                 toast.success("Lead eliminado");
-                onDeleted();
+                onDeleted(lead.id);
               });
             }}
           >

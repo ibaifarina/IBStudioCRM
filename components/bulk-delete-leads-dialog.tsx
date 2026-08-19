@@ -41,8 +41,8 @@ export function BulkDeleteLeadsDialog({
             ¿Eliminar {count} {count === 1 ? "lead" : "leads"}?
           </DialogTitle>
           <DialogDescription>
-            Se borrarán permanentemente los leads seleccionados, junto con sus
-            notas y etiquetas asociadas. Esta acción no se puede deshacer.
+            Se borrarán los leads seleccionados, junto con sus notas y
+            etiquetas. Podrás recuperarlos juntos desde el historial de cambios.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

@@ -5,6 +5,7 @@ import {
   parseLeadsCsv,
   serializeLeadsCsv,
 } from "@/lib/leads-csv";
+import { captureLeadChangeSet } from "@/lib/lead-history";
 import { createClient } from "@/lib/supabase/server";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -263,6 +264,19 @@ export async function POST(request: Request) {
       await cleanup();
       return jsonError("No se pudieron asociar las etiquetas. No se importó ningún lead.", 500);
     }
+  }
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    insertedLeadIds,
+    `Importación CSV de ${insertedLeadIds.length} ${
+      insertedLeadIds.length === 1 ? "lead" : "leads"
+    }`,
+    false
+  );
+  if ("error" in history) {
+    await cleanup();
+    return jsonError(history.error, 500);
   }
 
   revalidatePath("/", "layout");

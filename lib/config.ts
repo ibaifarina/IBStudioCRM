@@ -50,6 +50,16 @@ export const WEBSITE_STATUS_MAP: Record<
   ])
 ) as Record<WebsiteStatusKey, { label: string; color: string }>;
 
+export const LEAD_SORTS = [
+  { value: "updated_desc", label: "Últimos cambios" },
+  { value: "created_desc", label: "Añadidos recientemente" },
+  { value: "created_asc", label: "Añadidos hace más tiempo" },
+  { value: "name_asc", label: "Nombre A–Z" },
+  { value: "name_desc", label: "Nombre Z–A" },
+] as const;
+
+export type LeadSortKey = (typeof LEAD_SORTS)[number]["value"];
+
 export const TAG_COLORS = [
   "#2563eb", // azul
   "#0891b2", // cian
@@ -73,4 +83,8 @@ export function isValidWebsiteStatus(
   value: string
 ): value is WebsiteStatusKey {
   return WEBSITE_STATUSES.some((status) => status.value === value);
+}
+
+export function isValidLeadSort(value: string): value is LeadSortKey {
+  return LEAD_SORTS.some((sort) => sort.value === value);
 }

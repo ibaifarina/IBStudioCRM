@@ -6,6 +6,7 @@ import {
   GooglePlacesJsonError,
   parseGooglePlacesJson,
 } from "@/lib/google-places-json";
+import { captureLeadChangeSet } from "@/lib/lead-history";
 import { createClient } from "@/lib/supabase/server";
 import { findSimilarTag, normalizeTagName } from "@/lib/tag-similarity";
 
@@ -264,6 +265,19 @@ export async function POST(request: Request) {
         500
       );
     }
+  }
+
+  const history = await captureLeadChangeSet(
+    supabase,
+    insertedLeadIds,
+    `Importación de ${insertedLeadIds.length} ${
+      insertedLeadIds.length === 1 ? "lead" : "leads"
+    } desde Google Maps`,
+    false
+  );
+  if ("error" in history) {
+    await cleanup();
+    return jsonError(history.error, 500);
   }
 
   const usedTags = [

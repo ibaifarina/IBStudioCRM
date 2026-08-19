@@ -133,12 +133,14 @@ export function LeadDialog({
   allTags,
   lead,
   importedMapsLead,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   allTags: Tag[];
   lead?: LeadWithTags | null;
   importedMapsLead?: GoogleMapsLead | null;
+  onSaved?: (lead: LeadWithTags) => void;
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [geoResults, setGeoResults] = useState<GeocodeResult[]>([]);
@@ -254,6 +256,7 @@ export function LeadDialog({
         return;
       }
 
+      onSaved?.(result);
       toast.success(isEdit ? "Lead actualizado" : `Lead «${form.name}» creado`);
       if (keepOpen) {
         setForm(emptyForm());

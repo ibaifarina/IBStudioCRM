@@ -1,14 +1,14 @@
 import Link from "next/link";
-import { format, parseISO, startOfWeek, subWeeks } from "date-fns";
+import { format, parseISO, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { ArrowRightIcon, BellIcon } from "lucide-react";
 import {
+  ContactsChart,
   StatusChart,
   TagsChart,
-  WeeklyChart,
+  type ContactDatum,
   type StatusDatum,
   type TagDatum,
-  type WeekDatum,
 } from "@/components/dashboard-charts";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -62,27 +62,27 @@ function buildStatusData(leads: LeadWithTags[]): StatusDatum[] {
   }));
 }
 
-function buildWeeklyData(leads: LeadWithTags[]): WeekDatum[] {
-  const weeks: WeekDatum[] = [];
-  const now = new Date();
-  for (let i = 7; i >= 0; i--) {
-    const monday = startOfWeek(subWeeks(now, i), { weekStartsOn: 1 });
-    weeks.push({
-      week: format(monday, "yyyy-MM-dd"),
-      label: format(monday, "d MMM", { locale: es }),
-      value: 0,
-    });
-  }
+function buildContactData(leads: LeadWithTags[], days: number): ContactDatum[] {
+  const today = parseISO(todayISO());
+  const contactsByDate = new Map<string, number>();
+
   for (const lead of leads) {
     if (!lead.contactDate) continue;
-    const monday = format(
-      startOfWeek(parseISO(lead.contactDate), { weekStartsOn: 1 }),
-      "yyyy-MM-dd"
+    contactsByDate.set(
+      lead.contactDate,
+      (contactsByDate.get(lead.contactDate) ?? 0) + 1
     );
-    const bucket = weeks.find((w) => w.week === monday);
-    if (bucket) bucket.value += 1;
   }
-  return weeks;
+
+  return Array.from({ length: days }, (_, index) => {
+    const date = subDays(today, days - index - 1);
+    const dateISO = format(date, "yyyy-MM-dd");
+    return {
+      date: dateISO,
+      label: format(date, "d MMM", { locale: es }),
+      value: contactsByDate.get(dateISO) ?? 0,
+    };
+  });
 }
 
 function buildTagData(leads: LeadWithTags[]): TagDatum[] {
@@ -106,7 +106,7 @@ function buildFollowUps(leads: LeadWithTags[]): LeadWithTags[] {
     .filter(
       (l) => l.followUpDate && PENDING_STATUSES.includes(l.status as StatusKey)
     )
-    .sort((a, b) => a.followUpDate!.localeCompare(b.followUpDate!))
+    .sort((a, b) => b.followUpDate!.localeCompare(a.followUpDate!))
     .slice(0, 8);
 }
 
@@ -138,10 +138,11 @@ export default async function DashboardPage() {
   const leads = await getLeadsWithTags();
   const stats = buildStats(leads);
   const statusData = buildStatusData(leads);
-  const weeklyData = buildWeeklyData(leads);
+  const weeklyContactData = buildContactData(leads, 7);
+  const monthlyContactData = buildContactData(leads, 30);
   const tagData = buildTagData(leads);
   const followUps = buildFollowUps(leads);
-  const hasWeeklyData = weeklyData.some((week) => week.value > 0);
+  const hasContactData = monthlyContactData.some((day) => day.value > 0);
 
   const kpis = [
     { label: "Leads totales", value: stats.total, hint: "en el pipeline" },
@@ -158,7 +159,9 @@ export default async function DashboardPage() {
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-8">
       <PageHeader
         title="Resumen"
-        subtitle={format(new Date(), "EEEE, d 'de' MMMM yyyy", { locale: es })}
+        subtitle={format(parseISO(todayISO()), "EEEE, d 'de' MMMM yyyy", {
+          locale: es,
+        })}
       >
         {stats.pendingFollowUps > 0 && (
           <Link
@@ -232,16 +235,19 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="font-heading text-base">
-              Contactos por semana
+              Contactos por día
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-1 items-center">
-            {hasWeeklyData ? (
-              <WeeklyChart data={weeklyData} />
+            {hasContactData ? (
+              <ContactsChart
+                weeklyData={weeklyContactData}
+                monthlyData={monthlyContactData}
+              />
             ) : (
               <EmptyPanel
                 title="Aún no hay contactos registrados"
-                description="La actividad de las últimas ocho semanas aparecerá aquí."
+                description="La actividad diaria de la última semana o mes aparecerá aquí."
               />
             )}
           </CardContent>

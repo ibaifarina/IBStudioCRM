@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  isValidLeadSort,
   isValidStatus,
   isValidWebsiteStatus,
 } from "@/lib/config";
@@ -14,6 +15,7 @@ import type {
   LeadFilters,
   LeadImportComparable,
   LeadPage,
+  LeadSort,
 } from "@/lib/types";
 
 function validDate(value: unknown): value is string | undefined {
@@ -39,7 +41,13 @@ function validCursor(cursor: unknown): cursor is LeadCursor | null | undefined {
       Number(cursor.id) > 0 &&
       "updatedAt" in cursor &&
       typeof cursor.updatedAt === "string" &&
-      !Number.isNaN(Date.parse(cursor.updatedAt)))
+      !Number.isNaN(Date.parse(cursor.updatedAt)) &&
+      "createdAt" in cursor &&
+      typeof cursor.createdAt === "string" &&
+      !Number.isNaN(Date.parse(cursor.createdAt)) &&
+      "name" in cursor &&
+      typeof cursor.name === "string" &&
+      cursor.name.length <= 500)
   );
 }
 
@@ -90,6 +98,7 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
 export async function loadLeadsPage(input: {
   cursor?: LeadCursor | null;
   filters?: LeadFilters;
+  sort?: LeadSort;
 }): Promise<LeadPage | { error: string }> {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { error: "La solicitud no es válida." };
@@ -100,14 +109,20 @@ export async function loadLeadsPage(input: {
   if (!validCursor(input.cursor)) {
     return { error: "El punto de paginación no es válido." };
   }
+  const sort = input.sort ?? "updated_desc";
+  if (!isValidLeadSort(sort)) return { error: "Orden no válido." };
 
   const filters = sanitizeFilters(input.filters ?? {});
   if (!filters) return { error: "Los filtros no son válidos." };
 
   try {
-    return await getLeadsPage({ cursor: input.cursor, filters });
+    return await getLeadsPage({ cursor: input.cursor, filters, sort });
   } catch {
-    return { error: "No se pudieron cargar más leads." };
+    return {
+      error: input.cursor
+        ? "No se pudieron cargar más leads."
+        : "No se pudieron cargar los leads.",
+    };
   }
 }
 

@@ -7,13 +7,17 @@ import {
   isValidStatus,
   isValidWebsiteStatus,
 } from "@/lib/config";
+import { captureLeadChangeSet } from "@/lib/lead-history";
 import { resolveMapsCoordinates } from "@/lib/maps";
 import { isGoogleMapsShortUrl } from "@/lib/parse";
+import { getLeadWithTags } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
 import type {
   BulkLeadUpdate,
   GeocodeResult,
+  LeadChangeSet,
   LeadInput,
+  LeadWithTags,
   Tag,
 } from "@/lib/types";
 
@@ -64,9 +68,68 @@ async function getAuthenticatedClient() {
   return { ok: true, supabase, userId } as const;
 }
 
+export async function loadLeadChangeHistory(): Promise<
+  LeadChangeSet[] | { error: string }
+> {
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+
+  const { data, error } = await auth.supabase
+    .from("lead_change_sets")
+    .select(
+      "id, description, lead_count, created_at, restored_at, restores_change_set_id"
+    )
+    .eq("user_id", auth.userId)
+    .order("created_at", { ascending: false })
+    .limit(75);
+
+  if (error) {
+    return {
+      error:
+        "No se pudo cargar el historial. Comprueba que la migración esté aplicada.",
+    };
+  }
+
+  return data.map((change) => ({
+    id: change.id,
+    description: change.description,
+    leadCount: change.lead_count,
+    createdAt: change.created_at,
+    restoredAt: change.restored_at,
+    restoresChangeSetId: change.restores_change_set_id,
+  }));
+}
+
+export async function restoreLeadChangeSet(
+  changeSetId: number
+): Promise<{ restored: number } | { error: string }> {
+  if (!Number.isSafeInteger(changeSetId) || changeSetId <= 0) {
+    return { error: "La versión seleccionada no es válida." };
+  }
+
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+
+  const { data, error } = await auth.supabase.rpc("restore_lead_change_set", {
+    p_change_set_id: changeSetId,
+  });
+
+  if (error || typeof data !== "number") {
+    return {
+      error:
+        error?.message === "This change set was already restored"
+          ? "Esta versión ya se había restaurado."
+          : "No se pudo restaurar la versión seleccionada.",
+    };
+  }
+
+  revalidateCrm();
+  return { restored: data };
+}
+
 export async function saveLead(
   input: LeadInput
-): Promise<{ id: number } | { error: string }> {
+): Promise<LeadWithTags | { error: string }> {
   const auth = await getAuthenticatedClient();
   if (!auth.ok) return { error: auth.error };
 
@@ -126,6 +189,13 @@ export async function saveLead(
 
   let id: number;
   if (input.id) {
+    const history = await captureLeadChangeSet(
+      auth.supabase,
+      [input.id],
+      `Edición de «${name}»`
+    );
+    if ("error" in history) return history;
+
     const { data, error } = await auth.supabase
       .from("leads")
       .update(values)
@@ -181,18 +251,63 @@ export async function saveLead(
     }
   }
 
-  revalidateCrm();
-  return { id };
+  if (!input.id) {
+    const history = await captureLeadChangeSet(
+      auth.supabase,
+      [id],
+      `Creación de «${name}»`,
+      false
+    );
+    if ("error" in history) {
+      await auth.supabase.from("leads").delete().eq("id", id);
+      return history;
+    }
+  }
+
+  let savedLead;
+  try {
+    savedLead = await getLeadWithTags(id);
+  } catch {
+    return {
+      error: "El lead se guardó, pero no se pudo actualizar la vista.",
+    };
+  }
+  if (!savedLead) return { error: "No se encontró el lead guardado." };
+
+  if (!input.id) revalidateCrm();
+  return savedLead;
 }
 
 export async function deleteLead(id: number): Promise<{ error?: string }> {
   const auth = await getAuthenticatedClient();
   if (!auth.ok) return { error: auth.error };
 
-  const { error } = await auth.supabase.from("leads").delete().eq("id", id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return { error: "El lead no es válido." };
+  }
+
+  const { data: lead, error: readError } = await auth.supabase
+    .from("leads")
+    .select("id, name")
+    .eq("user_id", auth.userId)
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !lead) return { error: "No se encontró el lead." };
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    [id],
+    `Eliminación de «${lead.name}»`
+  );
+  if ("error" in history) return history;
+
+  const { error } = await auth.supabase
+    .from("leads")
+    .delete()
+    .eq("user_id", auth.userId)
+    .eq("id", id);
   if (error) return { error: "No se pudo eliminar el lead." };
 
-  revalidateCrm();
   return {};
 }
 
@@ -222,6 +337,15 @@ export async function deleteLeadsBulk(
     return { error: "Uno o más leads no existen o no se pueden eliminar." };
   }
 
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    leadIds,
+    `Eliminación masiva de ${leadIds.length} ${
+      leadIds.length === 1 ? "lead" : "leads"
+    }`
+  );
+  if ("error" in history) return history;
+
   const { data: deletedLeads, error } = await auth.supabase
     .from("leads")
     .delete()
@@ -248,11 +372,20 @@ export async function setLeadStatus(
 
   const { data: lead, error: readError } = await auth.supabase
     .from("leads")
-    .select("status, contact_date")
+    .select("name, status, contact_date")
+    .eq("user_id", auth.userId)
     .eq("id", id)
     .maybeSingle();
 
   if (readError || !lead) return { error: "No se encontró el lead." };
+  if (lead.status === status) return { contactDate: lead.contact_date };
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    [id],
+    `Cambio de estado de «${lead.name}»`
+  );
+  if ("error" in history) return history;
 
   const contactDate = isUncontactedStatus(status)
     ? null
@@ -283,6 +416,22 @@ export async function setLeadWebsiteStatus(
 
   const auth = await getAuthenticatedClient();
   if (!auth.ok) return { error: auth.error };
+
+  const { data: lead, error: readError } = await auth.supabase
+    .from("leads")
+    .select("name, website_status")
+    .eq("user_id", auth.userId)
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !lead) return { error: "No se encontró el lead." };
+  if (lead.website_status === websiteStatus) return {};
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    [id],
+    `Cambio de web de «${lead.name}»`
+  );
+  if ("error" in history) return history;
 
   const { error } = await auth.supabase
     .from("leads")
@@ -375,6 +524,15 @@ export async function updateLeadsBulk(
       return { error: "Una o más etiquetas no existen." };
     }
   }
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    leadIds,
+    `Edición masiva de ${leadIds.length} ${
+      leadIds.length === 1 ? "lead" : "leads"
+    }`
+  );
+  if ("error" in history) return history;
 
   const leadValues: {
     status?: string;
@@ -577,8 +735,11 @@ export async function locateGoogleMapsLinks(): Promise<
   const candidates = leads.filter(
     (lead) => lead.address && isGoogleMapsShortUrl(lead.address)
   );
-  let located = 0;
   let failed = 0;
+  const resolvedLeads: Array<{
+    id: number;
+    coordinates: { lat: number; lng: number };
+  }> = [];
 
   // Resolvemos en grupos pequeños para no abrir demasiadas conexiones a Google.
   for (let index = 0; index < candidates.length; index += 5) {
@@ -590,13 +751,28 @@ export async function locateGoogleMapsLinks(): Promise<
       }))
     );
 
-    await Promise.all(
-      results.map(async ({ lead, coordinates }) => {
-        if (!coordinates) {
-          failed += 1;
-          return;
-        }
+    for (const { lead, coordinates } of results) {
+      if (!coordinates) failed += 1;
+      else resolvedLeads.push({ id: lead.id, coordinates });
+    }
+  }
 
+  if (resolvedLeads.length === 0) return { located: 0, failed };
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    resolvedLeads.map((lead) => lead.id),
+    `Actualización de ubicación de ${resolvedLeads.length} ${
+      resolvedLeads.length === 1 ? "lead" : "leads"
+    }`
+  );
+  if ("error" in history) return history;
+
+  let located = 0;
+  for (let index = 0; index < resolvedLeads.length; index += 5) {
+    const batch = resolvedLeads.slice(index, index + 5);
+    await Promise.all(
+      batch.map(async ({ id, coordinates }) => {
         const { error: updateError } = await auth.supabase
           .from("leads")
           .update({
@@ -605,7 +781,7 @@ export async function locateGoogleMapsLinks(): Promise<
             updated_at: new Date().toISOString(),
           })
           .eq("user_id", auth.userId)
-          .eq("id", lead.id);
+          .eq("id", id);
 
         if (updateError) failed += 1;
         else located += 1;

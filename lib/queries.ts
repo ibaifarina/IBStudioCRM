@@ -1,4 +1,5 @@
 import { cache } from "react";
+import type { LeadSortKey } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import type {
   LeadCursor,
@@ -167,12 +168,45 @@ function safeSearchTerm(value: string) {
   return value.trim().slice(0, 100).replace(/[,%_()"\\]/g, " ");
 }
 
+const LEAD_SORT_CONFIG: Record<
+  LeadSortKey,
+  {
+    column: "updated_at" | "created_at" | "name";
+    cursorKey: "updatedAt" | "createdAt" | "name";
+    ascending: boolean;
+  }
+> = {
+  updated_desc: {
+    column: "updated_at",
+    cursorKey: "updatedAt",
+    ascending: false,
+  },
+  created_desc: {
+    column: "created_at",
+    cursorKey: "createdAt",
+    ascending: false,
+  },
+  created_asc: {
+    column: "created_at",
+    cursorKey: "createdAt",
+    ascending: true,
+  },
+  name_asc: { column: "name", cursorKey: "name", ascending: true },
+  name_desc: { column: "name", cursorKey: "name", ascending: false },
+};
+
+function postgrestFilterValue(value: string) {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 export async function getLeadsPage({
   cursor,
   filters = {},
+  sort = "updated_desc",
 }: {
   cursor?: LeadCursor | null;
   filters?: LeadFilters;
+  sort?: LeadSortKey;
 } = {}): Promise<LeadPage> {
   const supabase = await createClient();
   const selectColumns = filters.tagId
@@ -204,15 +238,18 @@ export async function getLeadsPage({
     );
   }
 
+  const sortConfig = LEAD_SORT_CONFIG[sort];
   if (cursor) {
+    const comparison = sortConfig.ascending ? "gt" : "lt";
+    const cursorValue = postgrestFilterValue(cursor[sortConfig.cursorKey]);
     query = query.or(
-      `updated_at.lt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.lt.${cursor.id})`
+      `${sortConfig.column}.${comparison}.${cursorValue},and(${sortConfig.column}.eq.${cursorValue},id.${comparison}.${cursor.id})`
     );
   }
 
   const { data, error, count } = await query
-    .order("updated_at", { ascending: false })
-    .order("id", { ascending: false })
+    .order(sortConfig.column, { ascending: sortConfig.ascending })
+    .order("id", { ascending: sortConfig.ascending })
     .limit(LEADS_PAGE_SIZE + 1);
 
   if (error) {
@@ -229,7 +266,12 @@ export async function getLeadsPage({
     total: cursor ? null : (count ?? 0),
     nextCursor:
       hasMore && lastLead
-        ? { id: lastLead.id, updatedAt: lastLead.updatedAt }
+        ? {
+            id: lastLead.id,
+            name: lastLead.name,
+            createdAt: lastLead.createdAt,
+            updatedAt: lastLead.updatedAt,
+          }
         : null,
   };
 }

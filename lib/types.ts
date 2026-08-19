@@ -1,4 +1,4 @@
-import type { WebsiteStatusKey } from "@/lib/config";
+import type { LeadSortKey, WebsiteStatusKey } from "@/lib/config";
 
 export type Lead = {
   id: number;
@@ -27,7 +27,21 @@ export type Tag = {
 
 export type LeadWithTags = Lead & { tags: Tag[] };
 
-export type LeadCursor = Pick<Lead, "id" | "updatedAt">;
+export type LeadChangeSet = {
+  id: number;
+  description: string;
+  leadCount: number;
+  createdAt: string;
+  restoredAt: string | null;
+  restoresChangeSetId: number | null;
+};
+
+export type LeadCursor = Pick<
+  Lead,
+  "id" | "name" | "createdAt" | "updatedAt"
+>;
+
+export type LeadSort = LeadSortKey;
 
 export type LeadFilters = {
   search?: string;
