@@ -5,6 +5,7 @@ import {
   getAllTags,
   getLeadsPage,
   getLeadWithTags,
+  getMessageTemplates,
   getRecentLeadCreatedDates,
 } from "@/lib/queries";
 
@@ -21,11 +22,12 @@ export default async function LeadsPage({
     parsedOpenId != null && Number.isSafeInteger(parsedOpenId) && parsedOpenId > 0
       ? parsedOpenId
       : undefined;
-  const [initialPage, tags, createdDates, initialOpenLead] = await Promise.all([
+  const [initialPage, tags, createdDates, initialOpenLead, templates] = await Promise.all([
     getLeadsPage(),
     getAllTags(),
     getRecentLeadCreatedDates(),
     initialOpenId ? getLeadWithTags(initialOpenId) : null,
+    getMessageTemplates(),
   ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function LeadsPage({
         createdDates={createdDates}
         initialOpenId={initialOpenId}
         initialOpenLead={initialOpenLead}
+        templates={templates}
       />
     </div>
   );

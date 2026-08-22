@@ -8,10 +8,50 @@ import type {
   LeadOption,
   LeadPage,
   LeadWithTags,
+  MessageTemplate,
   Tag,
 } from "@/lib/types";
 
 export const LEADS_PAGE_SIZE = 50;
+
+export const getMessageTemplates = cache(async (): Promise<MessageTemplate[]> => {
+  const supabase = await createClient();
+  let { data, error } = await supabase
+    .from("message_templates")
+    .select("id, name, icon, content, created_at, updated_at")
+    .order("updated_at", { ascending: false });
+
+  let hasIconColumn = true;
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    hasIconColumn = false;
+    const fallback = await supabase
+      .from("message_templates")
+      .select("id, name, content, created_at, updated_at")
+      .order("updated_at", { ascending: false });
+    data = fallback.data as typeof data;
+    error = fallback.error;
+  }
+
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw new Error(
+      "No se pudieron cargar las plantillas. Comprueba que la migración esté aplicada.",
+      { cause: error }
+    );
+  }
+
+  return (data ?? []).map((template) => ({
+    id: template.id,
+    name: template.name,
+    icon:
+      hasIconColumn && "icon" in template && typeof template.icon === "string"
+        ? template.icon
+        : "message-square-text",
+    content: template.content,
+    createdAt: template.created_at,
+    updatedAt: template.updated_at,
+  }));
+});
 
 type TagRow = {
   id: number;
@@ -216,7 +256,11 @@ export async function getLeadsPage({
     .from("leads")
     .select(selectColumns, cursor ? undefined : { count: "exact" });
 
-  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.status) {
+    query = query.eq("status", filters.status);
+  } else {
+    query = query.neq("status", "descartado");
+  }
   if (filters.websiteStatus) {
     query = query.eq("website_status", filters.websiteStatus);
   }

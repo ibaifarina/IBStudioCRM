@@ -56,12 +56,18 @@ function suggestedTagName(rows: AnalyzedGooglePlacesLead[]) {
 
 export function LeadImportDialog({
   tags,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   tags: Tag[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<AnalyzedGooglePlacesLead[]>([]);
   const [error, setError] = useState("");
@@ -242,11 +248,13 @@ export function LeadImportDialog({
         if (!nextOpen) resetFile();
       }}
     >
-      <DialogTrigger render={<Button variant="outline" />}>
-        <UploadIcon />
-        Importar
-      </DialogTrigger>
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden sm:max-w-6xl">
+      {controlledOpen === undefined && (
+        <DialogTrigger render={<Button variant="outline" />}>
+          <UploadIcon />
+          Importar
+        </DialogTrigger>
+      )}
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Importar leads de Google Maps</DialogTitle>
           <DialogDescription>

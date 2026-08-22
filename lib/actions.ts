@@ -74,6 +74,17 @@ export async function loadLeadChangeHistory(): Promise<
   const auth = await getAuthenticatedClient();
   if (!auth.ok) return { error: auth.error };
 
+  const { error: pruneError } = await auth.supabase.rpc(
+    "prune_lead_change_history"
+  );
+
+  if (pruneError) {
+    return {
+      error:
+        "No se pudo aplicar la retención del historial. Comprueba que la última migración esté aplicada.",
+    };
+  }
+
   const { data, error } = await auth.supabase
     .from("lead_change_sets")
     .select(

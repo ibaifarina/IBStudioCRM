@@ -36,6 +36,15 @@ export type LeadChangeSet = {
   restoresChangeSetId: number | null;
 };
 
+export type MessageTemplate = {
+  id: number;
+  name: string;
+  icon: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type LeadCursor = Pick<
   Lead,
   "id" | "name" | "createdAt" | "updatedAt"

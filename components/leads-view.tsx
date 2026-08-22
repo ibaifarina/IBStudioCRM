@@ -15,11 +15,14 @@ import {
   ArrowUpDownIcon,
   CheckIcon,
   ExternalLinkIcon,
+  FileTextIcon,
   FilterIcon,
   GlobeIcon,
+  HistoryIcon,
   Loader2Icon,
   MapPinIcon,
   MessageCircleIcon,
+  MessageSquareTextIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PhoneIcon,
@@ -28,6 +31,8 @@ import {
   SearchIcon,
   TagIcon,
   Trash2Icon,
+  UploadIcon,
+  WrenchIcon,
 } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
@@ -40,6 +45,7 @@ import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
+import { UseMessageTemplateDialog } from "@/components/use-message-template-dialog";
 import {
   WebsiteStatusBadge,
   WebsiteStatusDot,
@@ -95,6 +101,7 @@ import type {
   LeadPage,
   LeadSort,
   LeadWithTags,
+  MessageTemplate,
   Tag,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -132,6 +139,7 @@ export function LeadsView({
   createdDates,
   initialOpenId,
   initialOpenLead,
+  templates,
 }: {
   initialPage: LeadPage;
   tags: Tag[];
@@ -139,6 +147,7 @@ export function LeadsView({
   createdDates: string[];
   initialOpenId?: number;
   initialOpenLead: LeadWithTags | null;
+  templates: MessageTemplate[];
 }) {
   const router = useRouter();
   const [leads, setLeads] = useState(initialPage.leads);
@@ -162,6 +171,9 @@ export function LeadsView({
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [importingLeads, setImportingLeads] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [messageLead, setMessageLead] = useState<LeadWithTags | null>(null);
   const [openLeadOverride, setOpenLeadOverride] =
     useState<LeadWithTags | null>(null);
 
@@ -295,7 +307,9 @@ export function LeadsView({
       const update = (lead: LeadWithTags) =>
         lead.id === leadId ? { ...lead, status, contactDate } : lead;
       const remainsVisible =
-        statusFilter === "all" || status === statusFilter;
+        statusFilter === "all"
+          ? status !== "descartado"
+          : status === statusFilter;
       const wasVisible = leads.some((lead) => lead.id === leadId);
       setLeads((current) =>
         remainsVisible
@@ -438,11 +452,23 @@ export function LeadsView({
   };
 
   const updateLead = useCallback((updatedLead: LeadWithTags) => {
+    const remainsVisible =
+      statusFilter === "all"
+        ? updatedLead.status !== "descartado"
+        : updatedLead.status === statusFilter;
+    const wasVisible = leads.some((lead) => lead.id === updatedLead.id);
     setLeads((current) =>
-      current.map((lead) =>
-        lead.id === updatedLead.id ? updatedLead : lead
-      )
+      remainsVisible
+        ? current.map((lead) =>
+            lead.id === updatedLead.id ? updatedLead : lead
+          )
+        : current.filter((lead) => lead.id !== updatedLead.id)
     );
+    if (!remainsVisible && wasVisible) {
+      setTotal((current) =>
+        current == null ? current : Math.max(0, current - 1)
+      );
+    }
     setOpenLeadOverride((current) => {
       const isOpenFallback =
         current?.id === updatedLead.id ||
@@ -452,7 +478,7 @@ export function LeadsView({
     setEditing((current) =>
       current?.id === updatedLead.id ? updatedLead : current
     );
-  }, [initialOpenLead]);
+  }, [initialOpenLead, leads, statusFilter]);
 
   const removeLead = useCallback((leadId: number) => {
     setLeads((current) => current.filter((lead) => lead.id !== leadId));
@@ -562,14 +588,14 @@ export function LeadsView({
                 <span>Estado</span>
                 <FilterMenuValue>
                   {statusFilter === "all"
-                    ? "Todos"
+                    ? "Excepto descartados"
                     : STATUSES.find((s) => s.value === statusFilter)?.label}
                 </FilterMenuValue>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-48">
                 <DropdownMenuItem onClick={() => setStatusFilter("all")}>
                   <CheckIcon className={cn(statusFilter !== "all" && "opacity-0")} />
-                  Todos los estados
+                  Todos excepto descartados
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {STATUSES.map((status) => (
@@ -668,39 +694,45 @@ export function LeadsView({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <LeadImportDialog tags={tags} />
-
-        <LeadHistoryDialog onRestored={refreshVisibleLeads} />
-
-        {selectionMode ? (
-          <Button variant="outline" onClick={closeSelectionMode}>
-            Cancelar edición
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            onClick={() => setSelectionMode(true)}
-            disabled={filtered.length === 0}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="outline"
+                className={cn(selectionMode && "bg-muted")}
+              />
+            }
           >
-            <PencilIcon />
-            Editar varios
-          </Button>
-        )}
-
-        {(statusFilter !== "all" ||
-          websiteStatusFilter !== "all" ||
-          tagFilter !== "all" ||
-          addedDateFilter?.from ||
-          sort !== "updated_desc" ||
-          search) && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={resetFilters}
-          >
-            Limpiar
-          </Button>
-        )}
+            <WrenchIcon />
+            Herramientas
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuItem onClick={() => setImportingLeads(true)}>
+              <UploadIcon />
+              Importar
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                selectionMode
+                  ? closeSelectionMode()
+                  : setSelectionMode(true)
+              }
+              disabled={!selectionMode && filtered.length === 0}
+            >
+              <PencilIcon />
+              {selectionMode ? "Cancelar edición" : "Editar varios"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+              <HistoryIcon />
+              Historial
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/plantillas")}>
+              <FileTextIcon />
+              Plantillas
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <span className="ml-auto text-sm text-muted-foreground">
           {isFiltering ? (
@@ -915,6 +947,10 @@ export function LeadsView({
                         }
                       />
                       <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuItem onClick={() => setMessageLead(lead)}>
+                          <MessageSquareTextIcon />
+                          Preparar mensaje
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setEditing(lead)}>
                           <PencilIcon />
                           Editar
@@ -979,15 +1015,40 @@ export function LeadsView({
         onClose={closeSheet}
         onEdit={(lead) => setEditing(lead)}
         onDelete={(lead) => setDeleting(lead)}
+        onUseTemplate={setMessageLead}
         onStatusChange={updateLeadStatus}
       />
+
+      {messageLead && (
+        <UseMessageTemplateDialog
+          lead={messageLead}
+          templates={templates}
+          open
+          onOpenChange={(open) => !open && setMessageLead(null)}
+        />
+      )}
 
       <BulkEditLeadsDialog
         open={bulkEditing}
         onOpenChange={setBulkEditing}
         leadIds={[...selectedIds]}
         allTags={tags}
-        onUpdated={closeSelectionMode}
+        onUpdated={() => {
+          closeSelectionMode();
+          void refreshVisibleLeads();
+        }}
+      />
+
+      <LeadImportDialog
+        tags={tags}
+        open={importingLeads}
+        onOpenChange={setImportingLeads}
+      />
+
+      <LeadHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        onRestored={refreshVisibleLeads}
       />
 
       <BulkDeleteLeadsDialog
@@ -1038,12 +1099,14 @@ function LeadSheet({
   onClose,
   onEdit,
   onDelete,
+  onUseTemplate,
   onStatusChange,
 }: {
   lead: LeadWithTags | null;
   onClose: () => void;
   onEdit: (lead: LeadWithTags) => void;
   onDelete: (lead: LeadWithTags) => void;
+  onUseTemplate: (lead: LeadWithTags) => void;
   onStatusChange: (
     leadId: number,
     status: string,
@@ -1178,8 +1241,12 @@ function LeadSheet({
                 </div>
               )}
 
-              <div className="mt-2 flex gap-2">
-                <Button className="flex-1" onClick={() => onEdit(lead)}>
+              <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2">
+                <Button onClick={() => onUseTemplate(lead)}>
+                  <MessageSquareTextIcon />
+                  Mensaje
+                </Button>
+                <Button variant="outline" onClick={() => onEdit(lead)}>
                   <PencilIcon />
                   Editar
                 </Button>

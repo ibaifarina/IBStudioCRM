@@ -36,10 +36,16 @@ function formatDateTime(value: string) {
 
 export function LeadHistoryDialog({
   onRestored,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   onRestored: () => void | Promise<void>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [changes, setChanges] = useState<LeadChangeSet[]>([]);
   const [loadError, setLoadError] = useState("");
   const [selected, setSelected] = useState<LeadChangeSet | null>(null);
@@ -69,20 +75,23 @@ export function LeadHistoryDialog({
           if (nextOpen) startLoading(refreshHistory);
         }}
       >
-        <DialogTrigger render={<Button variant="outline" />}>
-          <HistoryIcon />
-          Historial
-        </DialogTrigger>
-        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden sm:max-w-2xl">
+        {controlledOpen === undefined && (
+          <DialogTrigger render={<Button variant="outline" />}>
+            <HistoryIcon />
+            Historial
+          </DialogTrigger>
+        )}
+        <DialogContent className="max-h-[calc(100svh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Historial de cambios</DialogTitle>
             <DialogDescription>
               Cada cambio guarda los datos y etiquetas anteriores. Las ediciones
-              masivas se agrupan para poder restaurarlas de una vez.
+              masivas se agrupan para poder restaurarlas de una vez. El historial
+              se conserva durante 30 días.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-48 overflow-y-auto pr-1">
+          <div className="min-h-0 overflow-y-auto overscroll-contain pr-1">
             {loading && changes.length === 0 ? (
               <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Loader2Icon className="size-4 animate-spin" />

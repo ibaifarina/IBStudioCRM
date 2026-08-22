@@ -2,7 +2,12 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
-const PUBLIC_PATHS = ["/login", "/registro", "/recuperar-contrasena"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/registro",
+  "/recuperar-contrasena",
+  "/__template-preview",
+];
 
 function matchesPublicPath(pathname: string) {
   return PUBLIC_PATHS.some(

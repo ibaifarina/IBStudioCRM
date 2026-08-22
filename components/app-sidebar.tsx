@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import {
   ChartPieIcon,
+  FileTextIcon,
   MapIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
@@ -20,9 +21,15 @@ import { openNewLead, openPalette } from "@/lib/events";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Resumen", icon: ChartPieIcon },
-  { href: "/leads", label: "Leads", icon: UsersIcon },
-  { href: "/mapa", label: "Mapa", icon: MapIcon },
+  { href: "/", label: "Resumen", mobileLabel: "Resumen", icon: ChartPieIcon },
+  { href: "/leads", label: "Leads", mobileLabel: "Leads", icon: UsersIcon },
+  { href: "/mapa", label: "Mapa", mobileLabel: "Mapa", icon: MapIcon },
+  {
+    href: "/plantillas",
+    label: "Plantillas",
+    mobileLabel: "Plant.",
+    icon: FileTextIcon,
+  },
 ];
 
 const SIDEBAR_COLLAPSED_KEY = "ibstudio-sidebar-collapsed:v1";
@@ -132,7 +139,7 @@ function MobileBar({ pathname }: { pathname: string }) {
                     : "text-sidebar-foreground/70"
                 )}
               >
-                {item.label}
+                {item.mobileLabel}
               </Link>
             );
           })}
