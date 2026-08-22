@@ -53,8 +53,8 @@ export function MapView({ leads }: { leads: LeadWithTags[] }) {
     });
   }, [unresolvedMapLinks]);
 
-  const visible = located.filter(
-    (l) => !hidden.has(l.status as StatusKey)
+  const visible = located.filter((lead) =>
+    lead.statuses.some((status) => !hidden.has(status))
   );
 
   const toggle = (status: StatusKey) => {
@@ -70,7 +70,9 @@ export function MapView({ leads }: { leads: LeadWithTags[] }) {
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1.5">
         {STATUSES.map((s) => {
-          const count = located.filter((l) => l.status === s.value).length;
+          const count = located.filter((lead) =>
+            lead.statuses.includes(s.value)
+          ).length;
           const off = hidden.has(s.value);
           return (
             <button

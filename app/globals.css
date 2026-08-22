@@ -146,6 +146,32 @@
   background-size: 22px 22px;
 }
 
+/* Fondo tipo chat para la vista previa del mensaje final (se adapta al tema) */
+.chat-canvas {
+  background-color: color-mix(in oklab, var(--muted) 45%, var(--background));
+  background-image: radial-gradient(
+      color-mix(in oklab, var(--foreground) 5.5%, transparent) 1px,
+      transparent 1.3px
+    ),
+    radial-gradient(
+      color-mix(in oklab, var(--foreground) 3%, transparent) 1px,
+      transparent 1.3px
+    );
+  background-size:
+    18px 18px,
+    18px 18px;
+  background-position:
+    0 0,
+    9px 9px;
+}
+
+/* Placeholder del editor de plantillas (contenteditable) */
+.template-editor-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
 /* Leaflet: que el mapa herede el radio y la tipografía del tema */
 .leaflet-container {
   font-family: var(--font-geist-sans), sans-serif;

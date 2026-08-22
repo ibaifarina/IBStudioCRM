@@ -1,17 +1,21 @@
 "use client";
 
 import { useTransition } from "react";
-import { ChevronDownIcon } from "lucide-react";
+import { CheckIcon } from "lucide-react";
 import { toast } from "sonner";
 import { showContactDateNoticeToast } from "@/components/contact-date-notice";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { setLeadStatus } from "@/lib/actions";
-import { STATUSES, STATUS_MAP, type StatusKey } from "@/lib/config";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { setLeadStatuses } from "@/lib/actions";
+import {
+  normalizeLeadStatuses,
+  STATUSES,
+  STATUS_MAP,
+  type StatusKey,
+} from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 export function StatusDot({
@@ -65,65 +69,128 @@ export function StatusBadge({
   );
 }
 
-/** Badge de estado clicable que despliega el resto de estados. */
-export function StatusSelect({
-  leadId,
-  status,
-  onStatusChange,
+export function StatusBadges({
+  statuses,
+  className,
 }: {
-  leadId: number;
-  status: string;
-  onStatusChange?: (status: string, contactDate: string | null) => void;
+  statuses: readonly string[];
+  className?: string;
 }) {
-  const [pending, startTransition] = useTransition();
-  const info = STATUS_MAP[status as StatusKey];
-  if (!info) return null;
+  return (
+    <span className={cn("inline-flex flex-wrap items-center gap-1", className)}>
+      {normalizeLeadStatuses(statuses).map((status) => (
+        <StatusBadge key={status} status={status} />
+      ))}
+    </span>
+  );
+}
+
+export function StatusPicker({
+  statuses,
+  onChange,
+  disabled,
+  className,
+}: {
+  statuses: readonly string[];
+  onChange: (statuses: StatusKey[]) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const selected = normalizeLeadStatuses(statuses);
+
+  const toggle = (status: StatusKey) => {
+    if (selected.includes(status)) {
+      if (selected.length === 1) {
+        toast.warning("Cada lead debe tener al menos un estado.");
+        return;
+      }
+      onChange(selected.filter((item) => item !== status));
+      return;
+    }
+    onChange([...selected, status]);
+  };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <Popover>
+      <PopoverTrigger
+        type="button"
+        disabled={disabled}
         className={cn(
-          "inline-flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs font-medium whitespace-nowrap transition-opacity outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/50",
-          pending && "opacity-50"
+          "flex min-h-8 max-w-full cursor-pointer items-center gap-1 rounded-lg border border-input bg-transparent px-1.5 py-1 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+          className
         )}
-        style={{
-          color: info.color,
-          backgroundColor: `${info.color}14`,
-          borderColor: `${info.color}38`,
-        }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
-        <StatusDot status={status} />
-        {info.label}
-        <ChevronDownIcon className="size-3 opacity-60" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-44">
-        {STATUSES.map((s) => (
-          <DropdownMenuItem
-            key={s.value}
-            onClick={(e) => {
-              e.stopPropagation();
-              startTransition(async () => {
-                const result = await setLeadStatus(leadId, s.value);
-                if (result.error) {
-                  toast.error(result.error);
-                  return;
-                }
-                onStatusChange?.(s.value, result.contactDate ?? null);
-                if (s.value === "contactado" && status !== "contactado") {
-                  showContactDateNoticeToast();
-                }
-              });
-            }}
-          >
-            <StatusDot status={s.value} />
-            {s.label}
-            {s.value === status && (
-              <span className="ml-auto text-muted-foreground">✓</span>
-            )}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        <StatusBadges statuses={selected} />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 gap-1 p-1.5">
+        <p className="px-1.5 py-1 text-xs font-medium text-muted-foreground">
+          Puedes seleccionar varios estados
+        </p>
+        {STATUSES.map((status) => {
+          const checked = selected.includes(status.value);
+          return (
+            <button
+              key={status.value}
+              type="button"
+              role="checkbox"
+              aria-checked={checked}
+              className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent"
+              onClick={(event) => {
+                event.stopPropagation();
+                toggle(status.value);
+              }}
+            >
+              <StatusDot status={status.value} />
+              <span className="flex-1">{status.label}</span>
+              <CheckIcon
+                className={cn("size-4", !checked && "opacity-0")}
+              />
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Selector de estados que guarda el cambio inmediatamente. */
+export function StatusSelect({
+  leadId,
+  statuses,
+  onStatusesChange,
+}: {
+  leadId: number;
+  statuses: readonly string[];
+  onStatusesChange?: (
+    statuses: StatusKey[],
+    contactDate: string | null
+  ) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const selected = normalizeLeadStatuses(statuses);
+
+  return (
+    <StatusPicker
+      statuses={selected}
+      disabled={pending}
+      className={cn("border-0 p-0 shadow-none", pending && "opacity-50")}
+      onChange={(nextStatuses) => {
+        startTransition(async () => {
+          const result = await setLeadStatuses(leadId, nextStatuses);
+          if (result.error || !result.statuses) {
+            toast.error(result.error ?? "No se pudieron cambiar los estados.");
+            return;
+          }
+          onStatusesChange?.(result.statuses, result.contactDate ?? null);
+          if (
+            result.statuses.includes("contactado") &&
+            !selected.includes("contactado")
+          ) {
+            showContactDateNoticeToast();
+          }
+        });
+      }}
+    />
   );
 }

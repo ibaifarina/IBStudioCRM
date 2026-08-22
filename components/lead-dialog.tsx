@@ -14,7 +14,7 @@ import {
   shouldShowContactDateNotice,
 } from "@/components/contact-date-notice";
 import { DateField } from "@/components/date-field";
-import { StatusDot } from "@/components/status-badge";
+import { StatusPicker } from "@/components/status-badge";
 import { TagPicker } from "@/components/tag-picker";
 import { WebsiteStatusDot } from "@/components/website-status-badge";
 import { Button } from "@/components/ui/button";
@@ -37,9 +37,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { geocodeAddress, saveLead } from "@/lib/actions";
 import {
-  isUncontactedStatus,
-  STATUSES,
+  areStatusesUncontacted,
   WEBSITE_STATUSES,
+  type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
 import { todayISO } from "@/lib/dates";
@@ -61,7 +61,7 @@ type FormState = {
   lat: number | null;
   lng: number | null;
   notes: string;
-  status: string;
+  statuses: StatusKey[];
   contactDate: string;
   followUpDate: string;
   tags: Tag[];
@@ -81,9 +81,10 @@ function fromLead(lead: LeadWithTags): FormState {
     lat: lead.lat,
     lng: lead.lng,
     notes,
-    status: lead.status,
+    statuses: lead.statuses,
     contactDate:
-      lead.contactDate ?? (!isUncontactedStatus(lead.status) ? todayISO() : ""),
+      lead.contactDate ??
+      (!areStatusesUncontacted(lead.statuses) ? todayISO() : ""),
     followUpDate: lead.followUpDate ?? "",
     tags: lead.tags,
   };
@@ -107,14 +108,13 @@ function emptyForm(): FormState {
     lat: null,
     lng: null,
     notes: "",
-    status: "por_contactar",
+    statuses: ["por_contactar"],
     contactDate: today,
     followUpDate: addDays(today, 7),
     tags: [],
   };
 }
 
-const STATUS_ITEMS = STATUSES.map((s) => ({ value: s.value, label: s.label }));
 const WEBSITE_STATUS_ITEMS = WEBSITE_STATUSES.map((status) => ({
   value: status.value,
   label: status.label,
@@ -179,7 +179,10 @@ export function LeadDialog({
                 lead.website ||
                 lead.websiteStatus !== "sin_revisar" ||
                 lead.followUpDate ||
-                (lead.status && lead.status !== "por_contactar")))
+                !(
+                  lead.statuses.length === 1 &&
+                  lead.statuses[0] === "por_contactar"
+                )))
         )
       );
     }
@@ -245,8 +248,10 @@ export function LeadDialog({
         lng: form.lng,
         problem: null,
         notes: form.notes,
-        status: form.status,
-        contactDate: isUncontactedStatus(form.status) ? "" : form.contactDate,
+        statuses: form.statuses,
+        contactDate: areStatusesUncontacted(form.statuses)
+          ? ""
+          : form.contactDate,
         followUpDate: form.followUpDate,
         tagIds: form.tags.map((t) => t.id),
       });
@@ -476,19 +481,19 @@ export function LeadDialog({
           {advanced && (
             <div className="grid gap-3.5 border-t pt-3.5">
               <div className="grid gap-1.5">
-                <Label>Estado</Label>
-                <Select
-                  items={STATUS_ITEMS}
-                  value={form.status}
-                  onValueChange={(v) => {
-                    if (typeof v !== "string") return;
+                <Label>Estados</Label>
+                <StatusPicker
+                  statuses={form.statuses}
+                  className="w-full"
+                  onChange={(statuses) => {
                     const changedToContacted =
-                      v === "contactado" && form.status !== "contactado";
+                      statuses.includes("contactado") &&
+                      !form.statuses.includes("contactado");
                     setForm((current) => ({
                       ...current,
-                      status: v,
+                      statuses,
                       contactDate:
-                        isUncontactedStatus(v)
+                        areStatusesUncontacted(statuses)
                           ? ""
                           : changedToContacted || !current.contactDate
                             ? todayISO()
@@ -501,22 +506,10 @@ export function LeadDialog({
                       setShowContactDateNotice(true);
                     }
                   }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_ITEMS.map((s) => (
-                      <SelectItem key={s.value} value={s.value}>
-                        <StatusDot status={s.value} />
-                        {s.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
 
-              {!isUncontactedStatus(form.status) && (
+              {!areStatusesUncontacted(form.statuses) && (
                 <div className="grid gap-1.5">
                   <Label>Fecha de contacto</Label>
                   <DateField

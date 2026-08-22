@@ -1,6 +1,6 @@
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { PENDING_STATUSES, type StatusKey } from "@/lib/config";
+import { hasPendingStatus } from "@/lib/config";
 
 const APP_TIME_ZONE = "Europe/Madrid";
 
@@ -36,18 +36,18 @@ export function formatDateShort(iso: string | null | undefined): string {
 /** Un follow-up está vencido si la fecha pasó y el lead sigue "en juego". */
 export function isFollowUpOverdue(
   followUpDate: string | null,
-  status: string
+  statuses: readonly string[]
 ): boolean {
   if (!followUpDate) return false;
-  if (!PENDING_STATUSES.includes(status as StatusKey)) return false;
+  if (!hasPendingStatus(statuses)) return false;
   return followUpDate < todayISO();
 }
 
 export function isFollowUpToday(
   followUpDate: string | null,
-  status: string
+  statuses: readonly string[]
 ): boolean {
   if (!followUpDate) return false;
-  if (!PENDING_STATUSES.includes(status as StatusKey)) return false;
+  if (!hasPendingStatus(statuses)) return false;
   return followUpDate === todayISO();
 }

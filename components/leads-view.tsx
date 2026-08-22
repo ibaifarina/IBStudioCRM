@@ -14,6 +14,7 @@ import {
   AtSignIcon,
   ArrowUpDownIcon,
   CheckIcon,
+  CopyIcon,
   ExternalLinkIcon,
   FileTextIcon,
   FilterIcon,
@@ -92,6 +93,7 @@ import {
   STATUSES,
   WEBSITE_STATUSES,
   WEBSITE_STATUS_MAP,
+  type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
 import { formatDate, formatDateShort, isFollowUpOverdue, isFollowUpToday } from "@/lib/dates";
@@ -122,6 +124,23 @@ function mapsUrl(lead: LeadWithTags) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     `${lead.name} ${lead.address ?? "Barcelona"}`
   )}`;
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("copy_failed");
 }
 
 function FilterMenuValue({ children }: { children?: string }) {
@@ -157,7 +176,7 @@ export function LeadsView({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusKey | "all">("all");
   const [websiteStatusFilter, setWebsiteStatusFilter] =
     useState<string>("all");
   const [tagFilter, setTagFilter] = useState<number | "all">("all");
@@ -176,6 +195,36 @@ export function LeadsView({
   const [messageLead, setMessageLead] = useState<LeadWithTags | null>(null);
   const [openLeadOverride, setOpenLeadOverride] =
     useState<LeadWithTags | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const copyResetRef = useRef<number | null>(null);
+
+  const copyLeadValue = useCallback(
+    async (value: string, label: string, field: string) => {
+      try {
+        await copyText(value);
+        setCopiedField(field);
+        if (copyResetRef.current != null) {
+          window.clearTimeout(copyResetRef.current);
+        }
+        copyResetRef.current = window.setTimeout(() => {
+          setCopiedField((current) => (current === field ? null : current));
+          copyResetRef.current = null;
+        }, 1200);
+        toast.success(`${label} copiado`);
+      } catch {
+        toast.error(`No se pudo copiar ${label.toLowerCase()}.`);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current != null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
 
   // Sincroniza ?open=<id> de la URL (p. ej. al llegar desde la paleta ⌘K).
   const [prevInitial, setPrevInitial] = useState(initialOpenId);
@@ -303,13 +352,19 @@ export function LeadsView({
   const filtered = leads;
 
   const updateLeadStatus = useCallback(
-    (leadId: number, status: string, contactDate: string | null) => {
+    (
+      leadId: number,
+      statuses: StatusKey[],
+      contactDate: string | null
+    ) => {
       const update = (lead: LeadWithTags) =>
-        lead.id === leadId ? { ...lead, status, contactDate } : lead;
+        lead.id === leadId
+          ? { ...lead, status: statuses[0], statuses, contactDate }
+          : lead;
       const remainsVisible =
         statusFilter === "all"
-          ? status !== "descartado"
-          : status === statusFilter;
+          ? !statuses.includes("descartado")
+          : statuses.includes(statusFilter);
       const wasVisible = leads.some((lead) => lead.id === leadId);
       setLeads((current) =>
         remainsVisible
@@ -454,8 +509,8 @@ export function LeadsView({
   const updateLead = useCallback((updatedLead: LeadWithTags) => {
     const remainsVisible =
       statusFilter === "all"
-        ? updatedLead.status !== "descartado"
-        : updatedLead.status === statusFilter;
+        ? !updatedLead.statuses.includes("descartado")
+        : updatedLead.statuses.includes(statusFilter);
     const wasVisible = leads.some((lead) => lead.id === updatedLead.id);
     setLeads((current) =>
       remainsVisible
@@ -842,8 +897,11 @@ export function LeadsView({
               </TableRow>
             )}
             {!isFiltering && filtered.map((lead) => {
-              const overdue = isFollowUpOverdue(lead.followUpDate, lead.status);
-              const today = isFollowUpToday(lead.followUpDate, lead.status);
+              const overdue = isFollowUpOverdue(
+                lead.followUpDate,
+                lead.statuses
+              );
+              const today = isFollowUpToday(lead.followUpDate, lead.statuses);
               return (
                 <TableRow
                   key={lead.id}
@@ -875,7 +933,29 @@ export function LeadsView({
                   <TableCell
                     className={cn("max-w-56", !selectionMode && "pl-4")}
                   >
-                    <div className="truncate font-medium">{lead.name}</div>
+                    <button
+                      type="button"
+                      className="group/copy inline-flex max-w-full items-center gap-0.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={`Copiar nombre de ${lead.name}`}
+                      title="Copiar nombre"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void copyLeadValue(
+                          lead.name,
+                          "Nombre",
+                          `name-${lead.id}`
+                        );
+                      }}
+                    >
+                      <span className="min-w-0 truncate font-medium">
+                        {lead.name}
+                      </span>
+                      {copiedField === `name-${lead.id}` ? (
+                        <CheckIcon className="ml-1 size-3.5 shrink-0 animate-in text-emerald-600 opacity-100 zoom-in-50" />
+                      ) : (
+                        <CopyIcon className="ml-1 size-3.5 shrink-0 opacity-0 transition-opacity group-focus-visible/copy:opacity-100 group-hover/copy:opacity-100" />
+                      )}
+                    </button>
                     {lead.instagram && (
                       <div className="truncate text-xs text-muted-foreground">
                         @{lead.instagram}
@@ -900,14 +980,28 @@ export function LeadsView({
                   </TableCell>
                   <TableCell className="hidden whitespace-nowrap text-muted-foreground xl:table-cell">
                     {lead.phone ? (
-                      <a
-                        href={`tel:${lead.phone}`}
-                        className="inline-flex items-center gap-1.5 hover:text-foreground hover:underline"
-                        onClick={(event) => event.stopPropagation()}
+                      <button
+                        type="button"
+                        className="group/copy inline-flex items-center gap-1.5 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                        aria-label={`Copiar teléfono de ${lead.name}`}
+                        title="Copiar teléfono"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void copyLeadValue(
+                            lead.phone!,
+                            "Teléfono",
+                            `phone-${lead.id}`
+                          );
+                        }}
                       >
                         <PhoneIcon className="size-3.5" />
                         {lead.phone}
-                      </a>
+                        {copiedField === `phone-${lead.id}` ? (
+                          <CheckIcon className="ml-1 size-3.5 animate-in text-emerald-600 opacity-100 zoom-in-50" />
+                        ) : (
+                          <CopyIcon className="ml-1 size-3.5 opacity-0 transition-opacity group-focus-visible/copy:opacity-100 group-hover/copy:opacity-100" />
+                        )}
+                      </button>
                     ) : (
                       "—"
                     )}
@@ -915,9 +1009,9 @@ export function LeadsView({
                   <TableCell>
                     <StatusSelect
                       leadId={lead.id}
-                      status={lead.status}
-                      onStatusChange={(status, contactDate) =>
-                        updateLeadStatus(lead.id, status, contactDate)
+                      statuses={lead.statuses}
+                      onStatusesChange={(statuses, contactDate) =>
+                        updateLeadStatus(lead.id, statuses, contactDate)
                       }
                     />
                   </TableCell>
@@ -1109,7 +1203,7 @@ function LeadSheet({
   onUseTemplate: (lead: LeadWithTags) => void;
   onStatusChange: (
     leadId: number,
-    status: string,
+    statuses: StatusKey[],
     contactDate: string | null
   ) => void;
 }) {
@@ -1128,9 +1222,9 @@ function LeadSheet({
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <StatusSelect
                   leadId={lead.id}
-                  status={lead.status}
-                  onStatusChange={(status, contactDate) =>
-                    onStatusChange(lead.id, status, contactDate)
+                  statuses={lead.statuses}
+                  onStatusesChange={(statuses, contactDate) =>
+                    onStatusChange(lead.id, statuses, contactDate)
                   }
                 />
                 <WebsiteStatusBadge status={lead.websiteStatus} />
@@ -1220,12 +1314,12 @@ function LeadSheet({
               <InfoRow label="Follow-up">
                 <span
                   className={cn(
-                    isFollowUpOverdue(lead.followUpDate, lead.status) &&
+                    isFollowUpOverdue(lead.followUpDate, lead.statuses) &&
                       "font-semibold text-destructive"
                   )}
                 >
                   {formatDate(lead.followUpDate)}
-                  {isFollowUpOverdue(lead.followUpDate, lead.status) &&
+                  {isFollowUpOverdue(lead.followUpDate, lead.statuses) &&
                     " · vencido"}
                 </span>
               </InfoRow>

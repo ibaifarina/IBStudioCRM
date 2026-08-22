@@ -237,6 +237,7 @@ export async function POST(request: Request) {
           lat: lead.lat,
           lng: lead.lng,
           status: "por_contactar",
+          statuses: ["por_contactar"],
         }))
       )
       .select("id");

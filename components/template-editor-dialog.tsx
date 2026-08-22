@@ -1,12 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import {
-  GripVerticalIcon,
-  Loader2Icon,
-  SaveIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { GripVerticalIcon, Loader2Icon, SaveIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteMessageTemplate,
@@ -26,12 +21,14 @@ import { Label } from "@/components/ui/label";
 import { TemplateIconPicker } from "@/components/template-icon-picker";
 import { DEFAULT_TEMPLATE_ICON } from "@/components/template-icon";
 import {
-  templateVariableStyle,
-} from "@/components/template-variable-text";
+  TEMPLATE_VARIABLE_MIME,
+  TemplateContentEditor,
+  type TemplateContentEditorHandle,
+} from "@/components/template-content-editor";
+import { templateVariableStyle } from "@/components/template-variable-text";
 import {
   extractTemplateVariables,
   normalizeTemplateVariable,
-  splitMessageTemplate,
   type TemplateVariable,
 } from "@/lib/message-templates";
 import type { MessageTemplate } from "@/lib/types";
@@ -78,32 +75,8 @@ export function TemplateEditorDialog({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, startSaving] = useTransition();
   const [deleting, startDeleting] = useTransition();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const highlightRef = useRef<HTMLDivElement>(null);
-  const selectionRef = useRef({ start: content.length, end: content.length });
+  const editorApiRef = useRef<TemplateContentEditorHandle | null>(null);
   const variables = useMemo(() => editableVariables(content), [content]);
-
-  const rememberSelection = () => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    selectionRef.current = {
-      start: textarea.selectionStart,
-      end: textarea.selectionEnd,
-    };
-  };
-
-  const insertVariable = (variable: TemplateVariable) => {
-    const token = `[${variable.label}]`;
-    const { start, end } = selectionRef.current;
-    setContent((current) => current.slice(0, start) + token + current.slice(end));
-    const nextPosition = start + token.length;
-    selectionRef.current = { start: nextPosition, end: nextPosition };
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      textarea?.focus();
-      textarea?.setSelectionRange(nextPosition, nextPosition);
-    });
-  };
 
   return (
     <>
@@ -114,11 +87,11 @@ export function TemplateEditorDialog({
               {template ? "Editar plantilla" : "Nueva plantilla"}
             </DialogTitle>
             <DialogDescription>
-              Personaliza el icono y arrastra variables al mensaje.
+              Las variables son elementos: arrástralas a cualquier punto del mensaje.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 overflow-y-auto pr-1">
+          <div className="-mx-1 min-h-0 overflow-y-auto px-1">
             <div className="grid gap-5 py-1 lg:grid-cols-[minmax(0,1fr)_240px]">
               <div className="space-y-5">
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
@@ -143,7 +116,7 @@ export function TemplateEditorDialog({
                     <div>
                       <Label htmlFor="template-editor-content">Mensaje</Label>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Las variables se resaltan automáticamente.
+                        Haz clic o suelta una variable donde quieras usarla.
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground">
@@ -152,12 +125,16 @@ export function TemplateEditorDialog({
                   </div>
                   <div
                     className={cn(
-                      "relative min-h-80 overflow-hidden rounded-xl border bg-background transition-[border-color,box-shadow]",
+                      "relative overflow-hidden rounded-xl border bg-background transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
                       draggingOver && "border-brand ring-3 ring-brand/15"
                     )}
                     onDragOver={(event) => {
+                      if (
+                        !event.dataTransfer.types.includes(TEMPLATE_VARIABLE_MIME)
+                      ) {
+                        return;
+                      }
                       event.preventDefault();
-                      event.dataTransfer.dropEffect = "copy";
                       setDraggingOver(true);
                     }}
                     onDragLeave={(event) => {
@@ -165,68 +142,19 @@ export function TemplateEditorDialog({
                         setDraggingOver(false);
                       }
                     }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      setDraggingOver(false);
-                      const key = event.dataTransfer.getData("application/x-template-variable");
-                      const variable = variables.find((item) => item.key === key);
-                      if (variable) insertVariable(variable);
-                    }}
+                    onDrop={() => setDraggingOver(false)}
                   >
-                    <div
-                      ref={highlightRef}
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 overflow-hidden px-3 py-3 text-sm leading-6 whitespace-pre-wrap break-words"
-                    >
-                      {content ? (
-                        splitMessageTemplate(content).map((part, index) =>
-                          part.type === "text" ? (
-                            <span key={`${index}-${part.value.slice(0, 8)}`}>
-                              {part.value}
-                            </span>
-                          ) : (
-                            <span
-                              key={`${index}-${part.key}`}
-                              className={cn(
-                                "rounded-[4px] box-decoration-clone",
-                                templateVariableStyle(part.key).token
-                              )}
-                            >
-                              [{part.label}]
-                            </span>
-                          )
-                        )
-                      ) : (
-                        <span className="text-muted-foreground">
-                          Hola, [nombre]…
-                        </span>
-                      )}
-                    </div>
-                    <textarea
-                      ref={textareaRef}
-                      id="template-editor-content"
+                    <TemplateContentEditor
+                      handleRef={editorApiRef}
                       value={content}
-                      maxLength={5000}
-                      spellCheck
-                      onChange={(event) => {
-                        setContent(event.target.value);
-                        rememberSelection();
-                      }}
-                      onSelect={rememberSelection}
-                      onClick={rememberSelection}
-                      onKeyUp={rememberSelection}
-                      onScroll={(event) => {
-                        if (highlightRef.current) {
-                          highlightRef.current.scrollTop = event.currentTarget.scrollTop;
-                          highlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
-                        }
-                      }}
-                      className="absolute inset-0 z-10 size-full min-h-80 resize-none bg-transparent px-3 py-3 text-sm leading-6 text-transparent caret-foreground outline-none selection:bg-brand/20"
-                      aria-describedby="template-editor-help"
+                      onChange={setContent}
+                      variables={variables}
+                      placeholder="Escribe el mensaje de la plantilla…"
                     />
                   </div>
                   <p id="template-editor-help" className="text-xs text-muted-foreground">
-                    Arrastra una variable al mensaje o haz clic para insertarla en el cursor.
+                    Escribe una variable entre corchetes y se convertirá en etiqueta;
+                    también puedes arrastrarlas entre palabras.
                   </p>
                 </div>
               </div>
@@ -245,11 +173,11 @@ export function TemplateEditorDialog({
                       onDragStart={(event) => {
                         event.dataTransfer.effectAllowed = "copy";
                         event.dataTransfer.setData(
-                          "application/x-template-variable",
+                          TEMPLATE_VARIABLE_MIME,
                           variable.key
                         );
                       }}
-                      onClick={() => insertVariable(variable)}
+                      onClick={() => editorApiRef.current?.insertVariable(variable)}
                       className={cn(
                         "flex w-full cursor-grab items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs font-medium transition-transform active:cursor-grabbing active:scale-[0.98]",
                         templateVariableStyle(variable.key).soft
@@ -261,7 +189,7 @@ export function TemplateEditorDialog({
                   ))}
                 </div>
                 <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                  También puedes escribir una variable propia entre corchetes.
+                  Se insertan donde tengas el cursor y puedes moverlas después.
                 </p>
               </aside>
             </div>

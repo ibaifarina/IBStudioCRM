@@ -1,4 +1,4 @@
-import type { LeadSortKey, WebsiteStatusKey } from "@/lib/config";
+import type { LeadSortKey, StatusKey, WebsiteStatusKey } from "@/lib/config";
 
 export type Lead = {
   id: number;
@@ -12,7 +12,9 @@ export type Lead = {
   lng: number | null;
   problem: string | null;
   notes: string | null;
-  status: string;
+  /** Primary state retained for backwards compatibility and map colouring. */
+  status: StatusKey;
+  statuses: StatusKey[];
   contactDate: string | null;
   followUpDate: string | null;
   createdAt: string;
@@ -54,7 +56,7 @@ export type LeadSort = LeadSortKey;
 
 export type LeadFilters = {
   search?: string;
-  status?: string;
+  status?: StatusKey;
   websiteStatus?: WebsiteStatusKey;
   tagId?: number;
   createdFrom?: string;
@@ -86,7 +88,7 @@ export type LeadInput = {
   lng?: number | null;
   problem?: string | null;
   notes?: string | null;
-  status: string;
+  statuses: StatusKey[];
   contactDate?: string | null;
   followUpDate?: string | null;
   tagIds: number[];
@@ -94,7 +96,7 @@ export type LeadInput = {
 
 export type BulkLeadUpdate = {
   leadIds: number[];
-  status?: string;
+  statuses?: StatusKey[];
   websiteStatus?: WebsiteStatusKey;
   tags?: {
     mode: "add" | "remove" | "replace";

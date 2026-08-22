@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import {
   TAG_COLORS,
-  isUncontactedStatus,
+  areStatusesUncontacted,
   isValidStatus,
   isValidWebsiteStatus,
+  normalizeLeadStatuses,
 } from "@/lib/config";
 import { captureLeadChangeSet } from "@/lib/lead-history";
 import { resolveMapsCoordinates } from "@/lib/maps";
@@ -46,6 +47,25 @@ function websiteStatusMigrationError() {
   return {
     error:
       "Falta aplicar la migración 20260722000000_add_website_status.sql en Supabase.",
+  } as const;
+}
+
+function isMissingStatusesColumn(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error.code === "42703" || error.code === "PGRST204") &&
+      "message" in error &&
+      typeof error.message === "string" &&
+      error.message.includes("statuses")
+  );
+}
+
+function statusesMigrationError() {
+  return {
+    error:
+      "Falta aplicar la migración 20260822010000_add_multiple_lead_statuses.sql en Supabase.",
   } as const;
 }
 
@@ -146,19 +166,25 @@ export async function saveLead(
 
   const name = input.name?.trim();
   if (!name) return { error: "El nombre del negocio es obligatorio." };
-  if (!isValidStatus(input.status)) return { error: "Estado no válido." };
+  if (
+    input.statuses.length === 0 ||
+    input.statuses.some((status) => !isValidStatus(status))
+  ) {
+    return { error: "Selecciona al menos un estado válido." };
+  }
+  const statuses = normalizeLeadStatuses(input.statuses);
   if (!isValidWebsiteStatus(input.websiteStatus)) {
     return { error: "Estado de la web no válido." };
   }
 
-  let contactDate = isUncontactedStatus(input.status)
+  let contactDate = areStatusesUncontacted(statuses)
     ? null
     : (clean(input.contactDate) ?? today());
 
-  if (input.id && input.status === "contactado") {
+  if (input.id && statuses.includes("contactado")) {
     const { data: currentLead, error: readError } = await auth.supabase
       .from("leads")
-      .select("status")
+      .select("statuses")
       .eq("id", input.id)
       .maybeSingle();
 
@@ -166,7 +192,7 @@ export async function saveLead(
       return { error: "No se encontró el lead." };
     }
 
-    if (currentLead.status !== "contactado") contactDate = today();
+    if (!currentLead.statuses?.includes("contactado")) contactDate = today();
   }
 
   const address = clean(input.address);
@@ -192,7 +218,8 @@ export async function saveLead(
     lng,
     problem: clean(input.problem),
     notes: clean(input.notes),
-    status: input.status,
+    status: statuses[0],
+    statuses,
     contact_date: contactDate,
     follow_up_date: clean(input.followUpDate),
     updated_at: new Date().toISOString(),
@@ -215,6 +242,7 @@ export async function saveLead(
       .maybeSingle();
 
     if (error || !data) {
+      if (isMissingStatusesColumn(error)) return statusesMigrationError();
       if (isMissingWebsiteStatusColumn(error)) {
         return websiteStatusMigrationError();
       }
@@ -238,6 +266,7 @@ export async function saveLead(
       .single();
 
     if (error || !data) {
+      if (isMissingStatusesColumn(error)) return statusesMigrationError();
       if (isMissingWebsiteStatusColumn(error)) {
         return websiteStatusMigrationError();
       }
@@ -372,24 +401,40 @@ export async function deleteLeadsBulk(
   return { deleted: deletedLeads.length };
 }
 
-export async function setLeadStatus(
+export async function setLeadStatuses(
   id: number,
-  status: string
-): Promise<{ error?: string; contactDate?: string | null }> {
-  if (!isValidStatus(status)) return { error: "Estado no válido." };
+  requestedStatuses: string[]
+): Promise<{
+  error?: string;
+  statuses?: ReturnType<typeof normalizeLeadStatuses>;
+  contactDate?: string | null;
+}> {
+  if (
+    requestedStatuses.length === 0 ||
+    requestedStatuses.some((status) => !isValidStatus(status))
+  ) {
+    return { error: "Selecciona al menos un estado válido." };
+  }
+  const statuses = normalizeLeadStatuses(requestedStatuses);
 
   const auth = await getAuthenticatedClient();
   if (!auth.ok) return { error: auth.error };
 
   const { data: lead, error: readError } = await auth.supabase
     .from("leads")
-    .select("name, status, contact_date")
+    .select("name, status, statuses, contact_date")
     .eq("user_id", auth.userId)
     .eq("id", id)
     .maybeSingle();
 
   if (readError || !lead) return { error: "No se encontró el lead." };
-  if (lead.status === status) return { contactDate: lead.contact_date };
+  const previousStatuses = normalizeLeadStatuses(lead.statuses, lead.status);
+  if (
+    previousStatuses.length === statuses.length &&
+    previousStatuses.every((status, index) => status === statuses[index])
+  ) {
+    return { statuses, contactDate: lead.contact_date };
+  }
 
   const history = await captureLeadChangeSet(
     auth.supabase,
@@ -398,23 +443,29 @@ export async function setLeadStatus(
   );
   if ("error" in history) return history;
 
-  const contactDate = isUncontactedStatus(status)
+  const contactDate = areStatusesUncontacted(statuses)
     ? null
-    : status === "contactado" && lead.status !== "contactado"
+    : statuses.includes("contactado") &&
+        !previousStatuses.includes("contactado")
       ? today()
       : (lead.contact_date ?? today());
   const { error } = await auth.supabase
     .from("leads")
     .update({
-      status,
+      status: statuses[0],
+      statuses,
       contact_date: contactDate,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
 
-  if (error) return { error: "No se pudo cambiar el estado." };
+  if (error) {
+    if (isMissingStatusesColumn(error)) return statusesMigrationError();
+    return { error: "No se pudieron cambiar los estados." };
+  }
 
-  return { contactDate };
+  revalidateCrm();
+  return { statuses, contactDate };
 }
 
 export async function setLeadWebsiteStatus(
@@ -480,17 +531,24 @@ export async function updateLeadsBulk(
     return { error: "Selecciona un máximo de 1000 leads cada vez." };
   }
 
-  const hasStatus = input.status !== undefined;
+  const hasStatuses = input.statuses !== undefined;
   const hasWebsiteStatus = input.websiteStatus !== undefined;
   const hasTags = input.tags !== undefined;
   const hasFollowUpDate = Object.hasOwn(input, "followUpDate");
 
-  if (!hasStatus && !hasWebsiteStatus && !hasTags && !hasFollowUpDate) {
+  if (!hasStatuses && !hasWebsiteStatus && !hasTags && !hasFollowUpDate) {
     return { error: "Selecciona al menos un cambio para aplicar." };
   }
-  if (hasStatus && !isValidStatus(input.status!)) {
-    return { error: "Estado no válido." };
+  if (
+    hasStatuses &&
+    (input.statuses!.length === 0 ||
+      input.statuses!.some((status) => !isValidStatus(status)))
+  ) {
+    return { error: "Selecciona al menos un estado válido." };
   }
+  const statuses = hasStatuses
+    ? normalizeLeadStatuses(input.statuses)
+    : undefined;
   if (
     hasWebsiteStatus &&
     !isValidWebsiteStatus(input.websiteStatus!)
@@ -500,7 +558,7 @@ export async function updateLeadsBulk(
 
   const { data: ownedLeads, error: leadError } = await auth.supabase
     .from("leads")
-    .select("id, status, contact_date")
+    .select("id, status, statuses, contact_date")
     .eq("user_id", auth.userId)
     .in("id", leadIds);
 
@@ -547,20 +605,22 @@ export async function updateLeadsBulk(
 
   const leadValues: {
     status?: string;
+    statuses?: string[];
     website_status?: string;
     contact_date?: string | null;
     follow_up_date?: string | null;
     updated_at: string;
   } = { updated_at: new Date().toISOString() };
 
-  if (hasStatus) {
-    leadValues.status = input.status;
-    if (isUncontactedStatus(input.status!)) leadValues.contact_date = null;
+  if (statuses) {
+    leadValues.status = statuses[0];
+    leadValues.statuses = statuses;
+    if (areStatusesUncontacted(statuses)) leadValues.contact_date = null;
   }
   if (hasWebsiteStatus) leadValues.website_status = input.websiteStatus;
   if (hasFollowUpDate) leadValues.follow_up_date = clean(input.followUpDate);
 
-  if (hasStatus || hasWebsiteStatus || hasFollowUpDate) {
+  if (hasStatuses || hasWebsiteStatus || hasFollowUpDate) {
     const { error } = await auth.supabase
       .from("leads")
       .update(leadValues)
@@ -568,17 +628,20 @@ export async function updateLeadsBulk(
       .in("id", leadIds);
 
     if (error) {
+      if (isMissingStatusesColumn(error)) return statusesMigrationError();
       if (isMissingWebsiteStatusColumn(error)) {
         return websiteStatusMigrationError();
       }
       return { error: "No se pudieron actualizar los leads." };
     }
 
-    if (input.status && !isUncontactedStatus(input.status)) {
+    if (statuses && !areStatusesUncontacted(statuses)) {
       const needsContactDate = ownedLeads
         .filter((lead) =>
-          input.status === "contactado"
-            ? lead.status !== "contactado"
+          statuses.includes("contactado")
+            ? !normalizeLeadStatuses(lead.statuses, lead.status).includes(
+                "contactado"
+              )
             : !lead.contact_date
         )
         .map((lead) => lead.id);

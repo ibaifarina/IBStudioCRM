@@ -14,6 +14,11 @@ export const STATUSES = [
 
 export type StatusKey = (typeof STATUSES)[number]["value"];
 
+const UNCONTACTED_STATUSES = new Set<StatusKey>([
+  "por_contactar",
+  "revisar_mas_tarde",
+]);
+
 export const STATUS_MAP: Record<StatusKey, { label: string; color: string }> =
   Object.fromEntries(
     STATUSES.map((s) => [s.value, { label: s.label, color: s.color }])
@@ -28,7 +33,36 @@ export const PENDING_STATUSES: StatusKey[] = [
 ];
 
 export function isUncontactedStatus(status: string): boolean {
-  return status === "por_contactar" || status === "revisar_mas_tarde";
+  return UNCONTACTED_STATUSES.has(status as StatusKey);
+}
+
+export function normalizeLeadStatuses(
+  statuses: readonly string[] | null | undefined,
+  fallback = "por_contactar"
+): StatusKey[] {
+  const valid = [...new Set((statuses ?? []).filter(isValidStatus))];
+  if (valid.length > 0) return valid;
+  return [isValidStatus(fallback) ? fallback : "por_contactar"];
+}
+
+export function hasLeadStatus(
+  statuses: readonly string[],
+  status: StatusKey
+): boolean {
+  return statuses.includes(status);
+}
+
+export function areStatusesUncontacted(statuses: readonly string[]): boolean {
+  return (
+    statuses.length > 0 &&
+    statuses.every((status) => isUncontactedStatus(status))
+  );
+}
+
+export function hasPendingStatus(statuses: readonly string[]): boolean {
+  return statuses.some((status) =>
+    PENDING_STATUSES.includes(status as StatusKey)
+  );
 }
 
 export const WEBSITE_STATUSES = [

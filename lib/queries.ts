@@ -1,5 +1,5 @@
 import { cache } from "react";
-import type { LeadSortKey } from "@/lib/config";
+import { normalizeLeadStatuses, type LeadSortKey } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import type {
   LeadCursor,
@@ -72,6 +72,7 @@ type LeadRow = {
   problem: string | null;
   notes: string | null;
   status: string;
+  statuses?: string[] | null;
   contact_date: string | null;
   follow_up_date: string | null;
   created_at: string;
@@ -83,6 +84,7 @@ function mapLeadRow(
   lead: LeadRow,
   hasWebsiteStatusColumn = true
 ): LeadWithTags {
+  const statuses = normalizeLeadStatuses(lead.statuses, lead.status);
   return {
     id: lead.id,
     name: lead.name,
@@ -100,7 +102,8 @@ function mapLeadRow(
     lng: lead.lng,
     problem: lead.problem,
     notes: lead.notes,
-    status: lead.status,
+    status: statuses[0],
+    statuses,
     contactDate: lead.contact_date,
     followUpDate: lead.follow_up_date,
     createdAt: lead.created_at,
@@ -131,6 +134,7 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
         problem,
         notes,
         status,
+        statuses,
         contact_date,
         follow_up_date,
         created_at,
@@ -143,6 +147,37 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
   let error = result.error;
 
   let hasWebsiteStatusColumn = true;
+  if (
+    error?.code === "42703" &&
+    error.message.includes("statuses")
+  ) {
+    const fallback = await supabase
+      .from("leads")
+      .select(
+        `
+          id,
+          name,
+          instagram,
+          website,
+          website_status,
+          phone,
+          address,
+          lat,
+          lng,
+          problem,
+          notes,
+          status,
+          contact_date,
+          follow_up_date,
+          created_at,
+          updated_at,
+          lead_tags ( tags ( id, name, color ) )
+        `
+      )
+      .order("updated_at", { ascending: false });
+    data = fallback.data;
+    error = fallback.error;
+  }
   if (
     error?.code === "42703" &&
     error.message.includes("website_status")
@@ -163,6 +198,7 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
           problem,
           notes,
           status,
+          statuses,
           contact_date,
           follow_up_date,
           created_at,
@@ -197,12 +233,18 @@ const LEAD_PAGE_COLUMNS = `
   problem,
   notes,
   status,
+  statuses,
   contact_date,
   follow_up_date,
   created_at,
   updated_at,
   lead_tags ( tags ( id, name, color ) )
 `;
+
+const LEAD_PAGE_COLUMNS_WITHOUT_STATUSES = LEAD_PAGE_COLUMNS.replace(
+  "  statuses,\n",
+  ""
+);
 
 function safeSearchTerm(value: string) {
   return value.trim().slice(0, 100).replace(/[,%_()"\\]/g, " ");
@@ -249,52 +291,64 @@ export async function getLeadsPage({
   sort?: LeadSortKey;
 } = {}): Promise<LeadPage> {
   const supabase = await createClient();
-  const selectColumns = filters.tagId
-    ? `${LEAD_PAGE_COLUMNS}, filtered_lead_tags:lead_tags!inner(tag_id)`
-    : LEAD_PAGE_COLUMNS;
-  let query = supabase
-    .from("leads")
-    .select(selectColumns, cursor ? undefined : { count: "exact" });
-
-  if (filters.status) {
-    query = query.eq("status", filters.status);
-  } else {
-    query = query.neq("status", "descartado");
-  }
-  if (filters.websiteStatus) {
-    query = query.eq("website_status", filters.websiteStatus);
-  }
-  if (filters.tagId) {
-    query = query.eq("filtered_lead_tags.tag_id", filters.tagId);
-  }
-  if (filters.createdFrom) {
-    query = query.gte("created_at", filters.createdFrom);
-  }
-  if (filters.createdTo) query = query.lte("created_at", filters.createdTo);
-
   const search = filters.search ? safeSearchTerm(filters.search) : "";
-  if (search) {
-    const pattern = `*${search}*`;
-    query = query.or(
-      ["name", "instagram", "website", "phone", "address", "problem", "notes"]
-        .map((column) => `${column}.ilike.${pattern}`)
-        .join(",")
-    );
-  }
-
   const sortConfig = LEAD_SORT_CONFIG[sort];
-  if (cursor) {
-    const comparison = sortConfig.ascending ? "gt" : "lt";
-    const cursorValue = postgrestFilterValue(cursor[sortConfig.cursorKey]);
-    query = query.or(
-      `${sortConfig.column}.${comparison}.${cursorValue},and(${sortConfig.column}.eq.${cursorValue},id.${comparison}.${cursor.id})`
-    );
-  }
+  const runQuery = (hasStatusesColumn: boolean) => {
+    const baseColumns = hasStatusesColumn
+      ? LEAD_PAGE_COLUMNS
+      : LEAD_PAGE_COLUMNS_WITHOUT_STATUSES;
+    const selectColumns = filters.tagId
+      ? `${baseColumns}, filtered_lead_tags:lead_tags!inner(tag_id)`
+      : baseColumns;
+    let query = supabase
+      .from("leads")
+      .select(selectColumns, cursor ? undefined : { count: "exact" });
 
-  const { data, error, count } = await query
-    .order(sortConfig.column, { ascending: sortConfig.ascending })
-    .order("id", { ascending: sortConfig.ascending })
-    .limit(LEADS_PAGE_SIZE + 1);
+    if (filters.status) {
+      query = hasStatusesColumn
+        ? query.contains("statuses", [filters.status])
+        : query.eq("status", filters.status);
+    } else {
+      query = hasStatusesColumn
+        ? query.not("statuses", "cs", "{descartado}")
+        : query.neq("status", "descartado");
+    }
+    if (filters.websiteStatus) {
+      query = query.eq("website_status", filters.websiteStatus);
+    }
+    if (filters.tagId) {
+      query = query.eq("filtered_lead_tags.tag_id", filters.tagId);
+    }
+    if (filters.createdFrom) {
+      query = query.gte("created_at", filters.createdFrom);
+    }
+    if (filters.createdTo) query = query.lte("created_at", filters.createdTo);
+    if (search) {
+      const pattern = `*${search}*`;
+      query = query.or(
+        ["name", "instagram", "website", "phone", "address", "problem", "notes"]
+          .map((column) => `${column}.ilike.${pattern}`)
+          .join(",")
+      );
+    }
+    if (cursor) {
+      const comparison = sortConfig.ascending ? "gt" : "lt";
+      const cursorValue = postgrestFilterValue(cursor[sortConfig.cursorKey]);
+      query = query.or(
+        `${sortConfig.column}.${comparison}.${cursorValue},and(${sortConfig.column}.eq.${cursorValue},id.${comparison}.${cursor.id})`
+      );
+    }
+
+    return query
+      .order(sortConfig.column, { ascending: sortConfig.ascending })
+      .order("id", { ascending: sortConfig.ascending })
+      .limit(LEADS_PAGE_SIZE + 1);
+  };
+
+  let { data, error, count } = await runQuery(true);
+  if (error?.code === "42703" && error.message.includes("statuses")) {
+    ({ data, error, count } = await runQuery(false));
+  }
 
   if (error) {
     throw new Error("No se pudieron cargar los leads.", { cause: error });
@@ -322,11 +376,19 @@ export async function getLeadsPage({
 
 export async function getLeadWithTags(id: number): Promise<LeadWithTags | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("leads")
     .select(LEAD_PAGE_COLUMNS)
     .eq("id", id)
     .maybeSingle();
+
+  if (error?.code === "42703" && error.message.includes("statuses")) {
+    ({ data, error } = await supabase
+      .from("leads")
+      .select(LEAD_PAGE_COLUMNS_WITHOUT_STATUSES)
+      .eq("id", id)
+      .maybeSingle());
+  }
 
   if (error) {
     throw new Error("No se pudo cargar el lead.", { cause: error });

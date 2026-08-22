@@ -3,6 +3,7 @@ import {
   isValidWebsiteStatus,
   STATUSES,
   WEBSITE_STATUSES,
+  type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
 
@@ -19,6 +20,7 @@ const HEADERS = [
   "problema",
   "notas",
   "estado",
+  "estados_json",
   "fecha_contacto",
   "fecha_seguimiento",
   "etiquetas_json",
@@ -39,7 +41,8 @@ export type CsvLead = {
   lng: number | null;
   problem: string | null;
   notes: string | null;
-  status: string;
+  status: StatusKey;
+  statuses: StatusKey[];
   contactDate: string | null;
   followUpDate: string | null;
   tags: string[];
@@ -74,6 +77,7 @@ export function serializeLeadsCsv(leads: ExportLead[]): string {
     lead.problem,
     lead.notes,
     lead.status,
+    JSON.stringify(lead.statuses),
     lead.contactDate,
     lead.followUpDate,
     JSON.stringify(lead.tags),
@@ -155,7 +159,7 @@ function normalizeHeader(value: string): string {
     .replace(/[\s-]+/g, "_");
 }
 
-function normalizeStatus(value: string): string | null {
+function normalizeStatus(value: string): StatusKey | null {
   const normalized = normalizeHeader(value);
   if (isValidStatus(normalized)) return normalized;
 
@@ -163,6 +167,48 @@ function normalizeStatus(value: string): string | null {
     STATUSES.find((status) => normalizeHeader(status.label) === normalized)?.value ??
     null
   );
+}
+
+function parseStatuses(value: string, fallback: string, rowNumber: number) {
+  const normalized = optional(value);
+  const rawValues = normalized
+    ? (() => {
+        if (normalized.startsWith("[")) {
+          try {
+            const parsed: unknown = JSON.parse(normalized);
+            if (
+              !Array.isArray(parsed) ||
+              parsed.some((status) => typeof status !== "string")
+            ) {
+              throw new Error();
+            }
+            return parsed;
+          } catch {
+            throw new CsvImportError(
+              `Fila ${rowNumber}: estados_json no contiene una lista válida.`
+            );
+          }
+        }
+        return normalized.split(/[|;]/);
+      })()
+    : [fallback];
+
+  const statuses = [
+    ...new Set(
+      rawValues.map((rawStatus) => normalizeStatus(rawStatus.trim()))
+    ),
+  ];
+  if (statuses.some((status) => status == null)) {
+    throw new CsvImportError(
+      `Fila ${rowNumber}: uno de los estados no es válido.`
+    );
+  }
+  if (statuses.length === 0) {
+    throw new CsvImportError(
+      `Fila ${rowNumber}: selecciona al menos un estado.`
+    );
+  }
+  return statuses as StatusKey[];
 }
 
 function normalizeWebsiteStatus(value: string): WebsiteStatusKey | null {
@@ -304,6 +350,7 @@ export function parseLeadsCsv(input: string): CsvLead[] {
     problem: findColumn(headers, "problema", "problem"),
     notes: findColumn(headers, "notas", "notes"),
     status: findColumn(headers, "estado", "status"),
+    statuses: findColumn(headers, "estados_json", "statuses", "estados"),
     contactDate: findColumn(headers, "fecha_contacto", "contact_date"),
     followUpDate: findColumn(
       headers,
@@ -341,10 +388,11 @@ export function parseLeadsCsv(input: string): CsvLead[] {
     }
 
     const rawStatus = optional(get(row, columns.status)) ?? "por_contactar";
-    const status = normalizeStatus(rawStatus);
-    if (!status) {
-      throw new CsvImportError(`Fila ${rowNumber}: el estado “${rawStatus}” no es válido.`);
-    }
+    const statuses = parseStatuses(
+      get(row, columns.statuses),
+      rawStatus,
+      rowNumber
+    );
 
     const rawWebsiteStatus =
       optional(get(row, columns.websiteStatus)) ?? "sin_revisar";
@@ -366,7 +414,8 @@ export function parseLeadsCsv(input: string): CsvLead[] {
       lng: parseNumber(get(row, columns.lng), "la longitud", rowNumber, -180, 180),
       problem: optional(get(row, columns.problem)),
       notes: optional(get(row, columns.notes)),
-      status,
+      status: statuses[0],
+      statuses,
       contactDate: parseDate(
         get(row, columns.contactDate),
         "la fecha de contacto",

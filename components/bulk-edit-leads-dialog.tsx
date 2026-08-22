@@ -5,7 +5,7 @@ import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { showContactDateNoticeToast } from "@/components/contact-date-notice";
 import { DateField } from "@/components/date-field";
-import { StatusDot } from "@/components/status-badge";
+import { StatusPicker } from "@/components/status-badge";
 import { TagPicker } from "@/components/tag-picker";
 import { WebsiteStatusDot } from "@/components/website-status-badge";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,8 @@ import {
 } from "@/components/ui/select";
 import { updateLeadsBulk } from "@/lib/actions";
 import {
-  STATUSES,
   WEBSITE_STATUSES,
+  type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
 import type { Tag } from "@/lib/types";
@@ -77,7 +77,7 @@ export function BulkEditLeadsDialog({
   onUpdated: () => void;
 }) {
   const [applyStatus, setApplyStatus] = useState(false);
-  const [status, setStatus] = useState("por_contactar");
+  const [statuses, setStatuses] = useState<StatusKey[]>(["por_contactar"]);
   const [applyWebsiteStatus, setApplyWebsiteStatus] = useState(false);
   const [websiteStatus, setWebsiteStatus] =
     useState<WebsiteStatusKey>("sin_revisar");
@@ -90,7 +90,7 @@ export function BulkEditLeadsDialog({
 
   const reset = () => {
     setApplyStatus(false);
-    setStatus("por_contactar");
+    setStatuses(["por_contactar"]);
     setApplyWebsiteStatus(false);
     setWebsiteStatus("sin_revisar");
     setApplyTags(false);
@@ -131,22 +131,11 @@ export function BulkEditLeadsDialog({
               label="Cambiar estado"
             />
             {applyStatus && (
-              <Select value={status} onValueChange={(value) => setStatus(value!)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    <StatusDot status={status} />
-                    {STATUSES.find((item) => item.value === status)?.label}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {STATUSES.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      <StatusDot status={item.value} />
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <StatusPicker
+                statuses={statuses}
+                onChange={setStatuses}
+                className="w-full"
+              />
             )}
           </div>
 
@@ -263,7 +252,7 @@ export function BulkEditLeadsDialog({
               startTransition(async () => {
                 const result = await updateLeadsBulk({
                   leadIds,
-                  ...(applyStatus ? { status } : {}),
+                  ...(applyStatus ? { statuses } : {}),
                   ...(applyWebsiteStatus ? { websiteStatus } : {}),
                   ...(applyTags
                     ? {
@@ -286,7 +275,7 @@ export function BulkEditLeadsDialog({
                 toast.success(
                   `${result.updated} ${result.updated === 1 ? "lead actualizado" : "leads actualizados"}`
                 );
-                if (applyStatus && status === "contactado") {
+                if (applyStatus && statuses.includes("contactado")) {
                   showContactDateNoticeToast();
                 }
                 reset();

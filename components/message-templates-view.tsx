@@ -1,16 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
-  ChevronRightIcon,
-  InfoIcon,
+  MessageSquarePlusIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
+  SearchXIcon,
 } from "lucide-react";
 import { MessageTemplateFillForm } from "@/components/message-template-fill-form";
 import { TemplateEditorDialog } from "@/components/template-editor-dialog";
 import { TemplateIcon } from "@/components/template-icon";
+import { TemplateVariableToken } from "@/components/template-variable-text";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { MessageTemplate } from "@/lib/types";
@@ -29,6 +30,8 @@ export function MessageTemplatesView({
   const [editingTemplate, setEditingTemplate] = useState<
     MessageTemplate | null | undefined
   >(undefined);
+  const detailRef = useRef<HTMLElement>(null);
+
   const filteredTemplates = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("es");
     if (!query) return templates;
@@ -38,6 +41,7 @@ export function MessageTemplatesView({
         template.content.toLocaleLowerCase("es").includes(query)
     );
   }, [search, templates]);
+
   const selected =
     templates.find((template) => template.id === selectedId) ?? templates[0];
 
@@ -57,6 +61,15 @@ export function MessageTemplatesView({
     setSelectedId(remaining[0]?.id ?? null);
   };
 
+  const selectTemplate = (id: number) => {
+    setSelectedId(id);
+    requestAnimationFrame(() => {
+      if (window.matchMedia("(max-width: 1023px)").matches) {
+        detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  };
+
   return (
     <>
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -74,9 +87,9 @@ export function MessageTemplatesView({
         </Button>
       </header>
 
-      <div className="grid min-h-[680px] overflow-hidden rounded-xl border bg-card shadow-xs lg:grid-cols-[340px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col border-b bg-muted/15 lg:border-r lg:border-b-0">
-          <div className="border-b p-4">
+      <div className="grid min-h-[680px] overflow-hidden rounded-2xl border bg-card shadow-xs lg:grid-cols-[360px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col border-b bg-muted/20 lg:border-r lg:border-b-0">
+          <div className="border-b p-3">
             <div className="relative">
               <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -87,78 +100,75 @@ export function MessageTemplatesView({
                 aria-label="Buscar plantillas"
               />
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 px-1 text-xs text-muted-foreground">
               {filteredTemplates.length} de {templates.length}{" "}
               {templates.length === 1 ? "plantilla" : "plantillas"}
             </p>
           </div>
 
-          <div className="max-h-80 flex-1 overflow-y-auto p-3 lg:max-h-none">
+          <div className="max-h-80 min-h-0 flex-1 overflow-y-auto p-2 lg:max-h-none">
             {filteredTemplates.length > 0 ? (
-              <div className="space-y-2">
-                {filteredTemplates.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() => setSelectedId(template.id)}
-                    className={cn(
-                      "group flex w-full items-center gap-3 rounded-xl border bg-background px-3 py-3 text-left transition-[border-color,box-shadow,transform] hover:border-foreground/15 hover:shadow-xs active:scale-[0.99]",
-                      selected?.id === template.id &&
-                        "border-brand/60 bg-brand/[0.035] shadow-xs ring-1 ring-brand/10"
-                    )}
-                  >
-                    <span
+              <div className="space-y-1">
+                {filteredTemplates.map((template) => {
+                  const isSelected = selected?.id === template.id;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => selectTemplate(template.id)}
+                      aria-current={isSelected || undefined}
                       className={cn(
-                        "flex size-11 shrink-0 items-center justify-center rounded-xl border bg-muted/30 text-muted-foreground",
-                        selected?.id === template.id &&
-                          "border-brand/25 bg-brand/10 text-brand"
+                        "group block w-full rounded-xl border p-3 text-left transition-all duration-150",
+                        isSelected
+                          ? "border-brand/40 bg-brand/[0.045] shadow-xs"
+                          : "border-transparent hover:border-border hover:bg-background"
                       )}
                     >
-                      <TemplateIcon name={template.icon} className="size-5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">
-                        {template.name}
+                      <span className="flex items-center gap-3">
+                        <TemplateIcon
+                          name={template.icon}
+                          className={cn(
+                            "size-5 shrink-0 text-muted-foreground",
+                            isSelected && "text-brand"
+                          )}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">
+                            {template.name}
+                          </span>
+                        </span>
                       </span>
-                      <span className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {template.content}
-                      </span>
-                    </span>
-                    <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             ) : (
-              <div className="flex min-h-48 flex-col items-center justify-center px-4 text-center">
-                <SearchIcon className="mb-3 size-5 text-muted-foreground" />
-                <p className="text-sm font-medium">No hay coincidencias</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Prueba con otro nombre o texto del mensaje.
+              <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
+                <span className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  <SearchXIcon className="size-5" />
+                </span>
+                <p className="text-sm font-medium">Sin coincidencias</p>
+                <p className="mt-1 max-w-52 text-xs leading-5 text-muted-foreground">
+                  Prueba con otro nombre o con texto del mensaje.
                 </p>
               </div>
             )}
           </div>
 
-          <div className="hidden items-start gap-2 border-t px-4 py-4 text-xs leading-5 text-muted-foreground lg:flex">
-            <InfoIcon className="mt-0.5 size-4 shrink-0" />
-            Las variables conocidas se rellenan automáticamente al abrir una plantilla desde un lead.
-          </div>
         </aside>
 
-        <main className="min-w-0 bg-background">
+        <main ref={detailRef} className="min-w-0 scroll-mt-4 bg-background">
           {selected ? (
             <div className="mx-auto max-w-3xl p-4 sm:p-6 lg:p-8">
-              <div className="mb-7 flex items-center gap-3 border-b pb-5">
-                <span className="flex size-12 items-center justify-center rounded-xl border bg-muted/25 text-brand">
-                  <TemplateIcon name={selected.icon} className="size-5" />
-                </span>
+              <div className="flex items-start gap-4 border-b pb-6">
+                <TemplateIcon
+                  name={selected.icon}
+                  className="mt-1 size-6 shrink-0 text-brand"
+                />
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate font-heading text-2xl font-semibold tracking-tight">
                     {selected.name}
                   </h2>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Completa, revisa y copia el mensaje.
-                  </p>
                 </div>
                 <Button
                   variant="outline"
@@ -169,23 +179,35 @@ export function MessageTemplatesView({
                 </Button>
               </div>
 
-              <MessageTemplateFillForm
-                key={`template-use-${selected.id}`}
-                content={selected.content}
-              />
+              <div
+                key={selected.id}
+                className="mt-7 animate-in fade-in slide-in-from-bottom-2 duration-300"
+              >
+                <MessageTemplateFillForm
+                  key={`template-use-${selected.id}`}
+                  content={selected.content}
+                />
+              </div>
             </div>
           ) : (
             <div className="flex min-h-[680px] flex-col items-center justify-center px-6 text-center">
-              <span className="mb-4 flex size-12 items-center justify-center rounded-xl border bg-muted/30 text-muted-foreground">
-                <PlusIcon className="size-5" />
+              <span className="mb-5 flex size-16 items-center justify-center rounded-2xl border bg-muted/30 text-muted-foreground shadow-xs">
+                <MessageSquarePlusIcon className="size-7" />
               </span>
-              <h2 className="font-heading text-lg font-semibold">
+              <h2 className="font-heading text-xl font-semibold tracking-tight">
                 Crea tu primera plantilla
               </h2>
-              <p className="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">
-                Añade variables como [nombre] y tendrás un mensaje reutilizable listo para copiar.
+              <p className="mt-1.5 max-w-sm text-sm leading-6 text-muted-foreground">
+                Añade variables como{" "}
+                <TemplateVariableToken
+                  variableKey="nombre"
+                  className="px-1.5 py-0 text-xs"
+                >
+                  [nombre]
+                </TemplateVariableToken>{" "}
+                y tendrás mensajes reutilizables listos para copiar en segundos.
               </p>
-              <Button className="mt-4" onClick={() => setEditingTemplate(null)}>
+              <Button className="mt-5" onClick={() => setEditingTemplate(null)}>
                 <PlusIcon />
                 Nueva plantilla
               </Button>

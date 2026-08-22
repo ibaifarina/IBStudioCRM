@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useTheme } from "next-themes";
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { BARCELONA_CENTER, STATUS_MAP, type StatusKey } from "@/lib/config";
+import { BARCELONA_CENTER, STATUS_MAP } from "@/lib/config";
 import type { LeadWithTags } from "@/lib/types";
 
 function FitBounds({ leads }: { leads: LeadWithTags[] }) {
@@ -47,7 +47,7 @@ export default function LeadsMap({ leads }: { leads: LeadWithTags[] }) {
       <FitBounds leads={located} />
       {located.map((lead) => {
         const color =
-          STATUS_MAP[lead.status as StatusKey]?.color ?? "#78716c";
+          STATUS_MAP[lead.status]?.color ?? "#78716c";
         return (
           <CircleMarker
             key={lead.id}
@@ -67,7 +67,10 @@ export default function LeadsMap({ leads }: { leads: LeadWithTags[] }) {
                   className="mt-0.5 mb-1 text-xs font-medium"
                   style={{ color }}
                 >
-                  {STATUS_MAP[lead.status as StatusKey]?.label}
+                  {lead.statuses
+                    .map((status) => STATUS_MAP[status]?.label)
+                    .filter(Boolean)
+                    .join(" · ")}
                   {lead.tags.length > 0 &&
                     ` · ${lead.tags.map((t) => t.name).join(", ")}`}
                 </p>

@@ -11,7 +11,7 @@ import {
   type TagDatum,
 } from "@/components/dashboard-charts";
 import { PageHeader } from "@/components/page-header";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusBadges } from "@/components/status-badge";
 import {
   Card,
   CardContent,
@@ -19,10 +19,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  isUncontactedStatus,
-  PENDING_STATUSES,
+  areStatusesUncontacted,
+  hasPendingStatus,
   STATUSES,
-  type StatusKey,
 } from "@/lib/config";
 import { formatDateShort, isFollowUpOverdue, todayISO } from "@/lib/dates";
 import { getLeadsWithTags } from "@/lib/queries";
@@ -34,12 +33,15 @@ export const dynamic = "force-dynamic";
 function buildStats(leads: LeadWithTags[]) {
   const total = leads.length;
   const contacted = leads.filter(
-    (lead) => !isUncontactedStatus(lead.status)
+    (lead) => !areStatusesUncontacted(lead.statuses)
   ).length;
   const responded = leads.filter(
-    (l) => l.status === "respondio" || l.status === "cliente"
+    (lead) =>
+      lead.statuses.includes("respondio") || lead.statuses.includes("cliente")
   ).length;
-  const clients = leads.filter((l) => l.status === "cliente").length;
+  const clients = leads.filter((lead) =>
+    lead.statuses.includes("cliente")
+  ).length;
   const responseRate = contacted > 0 ? Math.round((responded / contacted) * 100) : 0;
 
   const today = todayISO();
@@ -47,7 +49,7 @@ function buildStats(leads: LeadWithTags[]) {
     (l) =>
       l.followUpDate &&
       l.followUpDate <= today &&
-      PENDING_STATUSES.includes(l.status as StatusKey)
+      hasPendingStatus(l.statuses)
   ).length;
 
   return { total, contacted, responded, clients, responseRate, pendingFollowUps };
@@ -57,7 +59,7 @@ function buildStatusData(leads: LeadWithTags[]): StatusDatum[] {
   return STATUSES.map((s) => ({
     key: s.value,
     label: s.label,
-    value: leads.filter((l) => l.status === s.value).length,
+    value: leads.filter((lead) => lead.statuses.includes(s.value)).length,
     color: s.color,
   }));
 }
@@ -104,7 +106,7 @@ function buildTagData(leads: LeadWithTags[]): TagDatum[] {
 function buildFollowUps(leads: LeadWithTags[]): LeadWithTags[] {
   return leads
     .filter(
-      (l) => l.followUpDate && PENDING_STATUSES.includes(l.status as StatusKey)
+      (lead) => lead.followUpDate && hasPendingStatus(lead.statuses)
     )
     .sort((a, b) => b.followUpDate!.localeCompare(a.followUpDate!))
     .slice(0, 8);
@@ -275,7 +277,10 @@ export default async function DashboardPage() {
               />
             )}
             {followUps.map((lead) => {
-              const overdue = isFollowUpOverdue(lead.followUpDate, lead.status);
+              const overdue = isFollowUpOverdue(
+                lead.followUpDate,
+                lead.statuses
+              );
               return (
                 <Link
                   key={lead.id}
@@ -293,7 +298,7 @@ export default async function DashboardPage() {
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">
                     {lead.name}
                   </span>
-                  <StatusBadge status={lead.status} />
+                  <StatusBadges statuses={lead.statuses} />
                 </Link>
               );
             })}
