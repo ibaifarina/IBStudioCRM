@@ -104,7 +104,7 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --brand: oklch(0.75 0 0);
+  --brand: oklch(0.72 0.13 258);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -163,6 +163,11 @@
   background-position:
     0 0,
     9px 9px;
+}
+
+/* En oscuro, sube el contraste entre el lienzo del chat y la burbuja */
+.dark .chat-canvas {
+  background-color: color-mix(in oklab, var(--muted) 72%, var(--background));
 }
 
 /* Placeholder del editor de plantillas (contenteditable) */

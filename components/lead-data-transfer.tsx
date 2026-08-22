@@ -3,11 +3,14 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  CircleCheckIcon,
+  DatabaseIcon,
   DownloadIcon,
   FileSpreadsheetIcon,
   UploadIcon,
 } from "lucide-react";
 import { FormMessage } from "@/components/form-message";
+import { IconTile } from "@/components/icon-tile";
 import { buttonVariants, Button } from "@/components/ui/button";
 import {
   Card,
@@ -75,12 +78,20 @@ export function LeadDataTransfer() {
   }
 
   return (
-    <Card className="lg:col-span-2">
+    <Card>
       <CardHeader>
-        <CardTitle>Datos de leads</CardTitle>
-        <CardDescription>
-          Descarga una copia de tus datos o añade leads desde un archivo CSV.
-        </CardDescription>
+        <div className="flex items-start gap-3">
+          <IconTile>
+            <DatabaseIcon aria-hidden="true" />
+          </IconTile>
+          <div className="min-w-0">
+            <CardTitle>Datos de leads</CardTitle>
+            <CardDescription>
+              Descarga una copia de tus datos o añade leads desde un archivo
+              CSV.
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="grid items-stretch gap-3 md:grid-cols-2">
         <section className="flex min-h-56 flex-col rounded-xl border bg-muted/30 p-4">
@@ -89,10 +100,10 @@ export function LeadDataTransfer() {
               <DownloadIcon className="size-4" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="font-medium">Exportar leads</h3>
+              <h3 className="text-sm font-medium">Exportar leads</h3>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Descarga todos los campos, fechas y etiquetas en un CSV compatible
-                con Excel.
+                Descarga todos los campos, fechas y etiquetas en un CSV
+                compatible con Excel.
               </p>
             </div>
           </div>
@@ -118,10 +129,10 @@ export function LeadDataTransfer() {
               <UploadIcon className="size-4" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="font-medium">Importar leads</h3>
+              <h3 className="text-sm font-medium">Importar leads</h3>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Añade cada fila como un lead nuevo y reutiliza automáticamente las
-                etiquetas existentes.
+                Añade cada fila como un lead nuevo y reutiliza automáticamente
+                las etiquetas existentes.
               </p>
             </div>
           </div>
@@ -153,10 +164,17 @@ export function LeadDataTransfer() {
                 disabled={pending}
                 className="flex min-h-16 w-full items-center gap-3 rounded-lg border border-dashed border-input bg-background px-3 py-2 text-left transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
               >
-                <FileSpreadsheetIcon
-                  className="size-5 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
+                {selectedFileName ? (
+                  <CircleCheckIcon
+                    className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <FileSpreadsheetIcon
+                    className="size-5 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                )}
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">
                     {selectedFileName || "Seleccionar archivo CSV"}

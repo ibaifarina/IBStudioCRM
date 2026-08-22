@@ -86,6 +86,8 @@ export const WEBSITE_STATUS_MAP: Record<
 
 export const LEAD_SORTS = [
   { value: "updated_desc", label: "Últimos cambios" },
+  { value: "follow_up_asc", label: "Follow-up: fecha más próxima" },
+  { value: "follow_up_desc", label: "Follow-up: fecha más lejana" },
   { value: "created_desc", label: "Añadidos recientemente" },
   { value: "created_asc", label: "Añadidos hace más tiempo" },
   { value: "name_asc", label: "Nombre A–Z" },

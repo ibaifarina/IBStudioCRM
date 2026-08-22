@@ -8,21 +8,21 @@ import {
   useState,
   useTransition,
 } from "react";
-import { endOfDay, startOfDay } from "date-fns";
+import { endOfDay, format, startOfDay } from "date-fns";
+import { es } from "date-fns/locale";
 import { useRouter } from "next/navigation";
 import {
-  AtSignIcon,
   ArrowUpDownIcon,
+  AtSignIcon,
+  CalendarDaysIcon,
   CheckIcon,
   CopyIcon,
-  ExternalLinkIcon,
   FileTextIcon,
   FilterIcon,
   GlobeIcon,
   HistoryIcon,
   Loader2Icon,
   MapPinIcon,
-  MessageCircleIcon,
   MessageSquareTextIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -30,10 +30,13 @@ import {
   PlusIcon,
   RotateCcwIcon,
   SearchIcon,
+  SearchXIcon,
   TagIcon,
   Trash2Icon,
   UploadIcon,
+  UsersRoundIcon,
   WrenchIcon,
+  XIcon,
 } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
@@ -42,13 +45,13 @@ import { AddedDateFilter } from "@/components/added-date-filter";
 import { BulkDeleteLeadsDialog } from "@/components/bulk-delete-leads-dialog";
 import { BulkEditLeadsDialog } from "@/components/bulk-edit-leads-dialog";
 import { LeadImportDialog } from "@/components/lead-import-dialog";
+import { LeadDetailsModal } from "@/components/lead-details-modal";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
 import { UseMessageTemplateDialog } from "@/components/use-message-template-dialog";
 import {
-  WebsiteStatusBadge,
   WebsiteStatusDot,
   WebsiteStatusSelect,
 } from "@/components/website-status-badge";
@@ -73,13 +76,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
   Table,
   TableBody,
   TableCell,
@@ -96,7 +92,7 @@ import {
   type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
-import { formatDate, formatDateShort, isFollowUpOverdue, isFollowUpToday } from "@/lib/dates";
+import { formatDateShort, isFollowUpOverdue, isFollowUpToday } from "@/lib/dates";
 import { openNewLead } from "@/lib/events";
 import type {
   LeadFilters,
@@ -107,24 +103,7 @@ import type {
   Tag,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-function instagramUrl(handle: string) {
-  return `https://instagram.com/${handle.replace(/^@/, "")}`;
-}
-
-function whatsappUrl(phone: string) {
-  const digits = phone.replace(/\D/g, "").replace(/^00/, "");
-  return `https://wa.me/${digits}`;
-}
-
-function mapsUrl(lead: LeadWithTags) {
-  if (lead.lat != null && lead.lng != null) {
-    return `https://www.google.com/maps?q=${lead.lat},${lead.lng}`;
-  }
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    `${lead.name} ${lead.address ?? "Barcelona"}`
-  )}`;
-}
+import { instagramUrl, mapsUrl } from "@/lib/lead-links";
 
 async function copyText(value: string) {
   if (navigator.clipboard?.writeText) {
@@ -147,6 +126,95 @@ function FilterMenuValue({ children }: { children?: string }) {
   return (
     <span className="ml-auto max-w-32 truncate text-right text-xs font-normal text-muted-foreground">
       {children}
+    </span>
+  );
+}
+
+function CopyHint({
+  copied,
+  className,
+}: {
+  copied: boolean;
+  className?: string;
+}) {
+  return copied ? (
+    <CheckIcon
+      className={cn(
+        "ml-1 size-3.5 shrink-0 animate-in text-emerald-600 opacity-100 zoom-in-50 dark:text-emerald-400",
+        className
+      )}
+    />
+  ) : (
+    <CopyIcon
+      className={cn(
+        "ml-1 size-3.5 shrink-0 opacity-0 transition-opacity group-hover/name:opacity-100 group-focus-visible/name:opacity-100",
+        className
+      )}
+    />
+  );
+}
+
+function FollowUpCell({ lead }: { lead: LeadWithTags }) {
+  const overdue = isFollowUpOverdue(lead.followUpDate, lead.statuses);
+  const dueToday = isFollowUpToday(lead.followUpDate, lead.statuses);
+
+  if (!lead.followUpDate) {
+    return <span className="text-muted-foreground/60">—</span>;
+  }
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 tabular-nums",
+        overdue && "text-destructive",
+        dueToday && "text-brand"
+      )}
+    >
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          overdue
+            ? "bg-destructive"
+            : dueToday
+              ? "bg-brand"
+              : "bg-muted-foreground/30"
+        )}
+      />
+      <span className={cn((overdue || dueToday) && "font-semibold")}>
+        {formatDateShort(lead.followUpDate)}
+      </span>
+      {overdue && (
+        <span className="rounded-full bg-destructive/10 px-1.5 py-px text-[10px] font-semibold tracking-wide text-destructive uppercase dark:bg-destructive/15">
+          Vencido
+        </span>
+      )}
+      {dueToday && (
+        <span className="rounded-full bg-brand/10 px-1.5 py-px text-[10px] font-semibold tracking-wide text-brand uppercase dark:bg-brand/15">
+          Hoy
+        </span>
+      )}
+    </span>
+  );
+}
+
+function FilterChip({
+  onRemove,
+  children,
+}: {
+  onRemove: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="inline-flex h-7 animate-in items-center gap-1.5 rounded-full border bg-card pr-1 pl-2.5 text-xs font-medium whitespace-nowrap fade-in-0 zoom-in-95">
+      {children}
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="Quitar filtro"
+        className="grid size-5 cursor-pointer place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <XIcon className="size-3" />
+      </button>
     </span>
   );
 }
@@ -579,232 +647,345 @@ export function LeadsView({
     }
   }, [filters, router, sort]);
 
+  const addedDateLabel = useMemo(() => {
+    if (!addedDateFilter?.from) return null;
+    if (!addedDateFilter.to || addedDateFilter.from === addedDateFilter.to) {
+      return format(addedDateFilter.from, "d MMM", { locale: es });
+    }
+    return `${format(addedDateFilter.from, "d MMM", { locale: es })} – ${format(
+      addedDateFilter.to,
+      "d MMM",
+      { locale: es }
+    )}`;
+  }, [addedDateFilter]);
+
+  const hasActiveChips = activeFilterCount > 0 || sort !== "updated_desc";
+
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative w-full max-w-xs">
-          <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-8"
-            placeholder="Buscar por nombre, notas, zona…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="outline"
-                className={cn(
-                  "gap-1.5",
-                  (activeFilterCount > 0 || sort !== "updated_desc") &&
-                    "bg-muted"
-                )}
-              >
-                <FilterIcon className="size-3.5" />
-                Filtros
-                {activeFilterCount > 0 && (
-                  <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start" className="w-64">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <ArrowUpDownIcon />
-                <span>Ordenar por</span>
-                <FilterMenuValue>{activeSort.label}</FilterMenuValue>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64">
-                {LEAD_SORTS.map((item) => (
-                  <DropdownMenuItem
-                    key={item.value}
-                    onClick={() => setSort(item.value)}
-                  >
-                    <CheckIcon
-                      className={cn(sort !== item.value && "opacity-0")}
-                    />
-                    {item.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-
-            <DropdownMenuSeparator />
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <FilterIcon />
-                <span>Estado</span>
-                <FilterMenuValue>
-                  {statusFilter === "all"
-                    ? "Excepto descartados"
-                    : STATUSES.find((s) => s.value === statusFilter)?.label}
-                </FilterMenuValue>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-48">
-                <DropdownMenuItem onClick={() => setStatusFilter("all")}>
-                  <CheckIcon className={cn(statusFilter !== "all" && "opacity-0")} />
-                  Todos excepto descartados
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {STATUSES.map((status) => (
-                  <DropdownMenuItem
-                    key={status.value}
-                    onClick={() => setStatusFilter(status.value)}
-                  >
-                    <StatusDot status={status.value} />
-                    <span className="flex-1">{status.label}</span>
-                    {statusFilter === status.value && <CheckIcon />}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <GlobeIcon />
-                <span>Web</span>
-                <FilterMenuValue>
-                  {websiteStatusFilter === "all"
-                    ? "Todas"
-                    : WEBSITE_STATUS_MAP[
-                        websiteStatusFilter as keyof typeof WEBSITE_STATUS_MAP
-                      ]?.label}
-                </FilterMenuValue>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-52">
-                <DropdownMenuItem onClick={() => setWebsiteStatusFilter("all")}>
-                  <CheckIcon
-                    className={cn(websiteStatusFilter !== "all" && "opacity-0")}
-                  />
-                  Todos los estados web
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {WEBSITE_STATUSES.map((status) => (
-                  <DropdownMenuItem
-                    key={status.value}
-                    onClick={() => setWebsiteStatusFilter(status.value)}
-                  >
-                    <WebsiteStatusDot status={status.value} />
-                    <span className="flex-1">{status.label}</span>
-                    {websiteStatusFilter === status.value && <CheckIcon />}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <TagIcon />
-                <span>Etiqueta</span>
-                <FilterMenuValue>
-                  {activeTag?.name ?? "Todas"}
-                </FilterMenuValue>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-52">
-                <DropdownMenuItem onClick={() => setTagFilter("all")}>
-                  <CheckIcon className={cn(tagFilter !== "all" && "opacity-0")} />
-                  Todas las etiquetas
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {tags.map((tag) => (
-                  <DropdownMenuItem
-                    key={tag.id}
-                    onClick={() => setTagFilter(tag.id)}
-                  >
-                    <span
-                      className="size-2.5 rounded-full"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    <span className="flex-1 truncate">{tag.name}</span>
-                    {tagFilter === tag.id && <CheckIcon />}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-
-            <AddedDateFilter
-              createdDates={createdDates}
-              today={today}
-              value={addedDateFilter}
-              onChange={setAddedDateFilter}
+      <div className="mb-4 flex flex-col gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:max-w-xs">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-9 rounded-lg pr-8 pl-9"
+              placeholder="Buscar por nombre, notas, zona…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
+            {search && (
+              <button
+                type="button"
+                aria-label="Limpiar búsqueda"
+                onClick={() => setSearch("")}
+                className="absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            )}
+          </div>
 
-            <DropdownMenuSeparator />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className={cn(
+                    "gap-1.5",
+                    sort !== "updated_desc" &&
+                      "border-brand/30 bg-brand/[0.06] text-brand hover:bg-brand/10 hover:text-brand dark:border-brand/40 dark:bg-brand/10"
+                  )}
+                >
+                  <ArrowUpDownIcon className="size-3.5" />
+                  Ordenar
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="start" className="w-72">
+              {LEAD_SORTS.map((item) => (
+                <DropdownMenuItem
+                  key={item.value}
+                  onClick={() => setSort(item.value)}
+                >
+                  <CheckIcon
+                    className={cn(sort !== item.value && "opacity-0")}
+                  />
+                  {item.label}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setSort("updated_desc")}
+                disabled={sort === "updated_desc"}
+              >
+                <RotateCcwIcon />
+                Orden predeterminado
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-            <DropdownMenuItem
-              onClick={resetFilters}
-              disabled={isDefaultQuery}
-            >
-              <RotateCcwIcon />
-              Restablecer filtros
-            </DropdownMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className={cn(
+                    "gap-1.5",
+                    activeFilterCount > 0 &&
+                      "border-brand/30 bg-brand/[0.06] text-brand hover:bg-brand/10 hover:text-brand dark:border-brand/40 dark:bg-brand/10"
+                  )}
+                >
+                  <FilterIcon className="size-3.5" />
+                  Filtros
+                  {activeFilterCount > 0 && (
+                    <span className="ml-0.5 flex size-4.5 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold text-background tabular-nums">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <FilterIcon />
+                  <span>Estado</span>
+                  <FilterMenuValue>
+                    {statusFilter === "all"
+                      ? "Excepto descartados"
+                      : STATUSES.find((s) => s.value === statusFilter)?.label}
+                  </FilterMenuValue>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-48">
+                  <DropdownMenuItem onClick={() => setStatusFilter("all")}>
+                    <CheckIcon className={cn(statusFilter !== "all" && "opacity-0")} />
+                    Todos excepto descartados
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {STATUSES.map((status) => (
+                    <DropdownMenuItem
+                      key={status.value}
+                      onClick={() => setStatusFilter(status.value)}
+                    >
+                      <StatusDot status={status.value} />
+                      <span className="flex-1">{status.label}</span>
+                      {statusFilter === status.value && <CheckIcon />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
 
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <GlobeIcon />
+                  <span>Web</span>
+                  <FilterMenuValue>
+                    {websiteStatusFilter === "all"
+                      ? "Todas"
+                      : WEBSITE_STATUS_MAP[
+                          websiteStatusFilter as keyof typeof WEBSITE_STATUS_MAP
+                        ]?.label}
+                  </FilterMenuValue>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-52">
+                  <DropdownMenuItem onClick={() => setWebsiteStatusFilter("all")}>
+                    <CheckIcon
+                      className={cn(websiteStatusFilter !== "all" && "opacity-0")}
+                    />
+                    Todos los estados web
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {WEBSITE_STATUSES.map((status) => (
+                    <DropdownMenuItem
+                      key={status.value}
+                      onClick={() => setWebsiteStatusFilter(status.value)}
+                    >
+                      <WebsiteStatusDot status={status.value} />
+                      <span className="flex-1">{status.label}</span>
+                      {websiteStatusFilter === status.value && <CheckIcon />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <TagIcon />
+                  <span>Etiqueta</span>
+                  <FilterMenuValue>
+                    {activeTag?.name ?? "Todas"}
+                  </FilterMenuValue>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-52">
+                  <DropdownMenuItem onClick={() => setTagFilter("all")}>
+                    <CheckIcon className={cn(tagFilter !== "all" && "opacity-0")} />
+                    Todas las etiquetas
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {tags.map((tag) => (
+                    <DropdownMenuItem
+                      key={tag.id}
+                      onClick={() => setTagFilter(tag.id)}
+                    >
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      <span className="flex-1 truncate">{tag.name}</span>
+                      {tagFilter === tag.id && <CheckIcon />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              <AddedDateFilter
+                createdDates={createdDates}
+                today={today}
+                value={addedDateFilter}
+                onChange={setAddedDateFilter}
+              />
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem
+                onClick={resetFilters}
+                disabled={isDefaultQuery}
+              >
+                <RotateCcwIcon />
+                Restablecer filtros
+              </DropdownMenuItem>
+
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
               <Button
                 variant="outline"
+                size="lg"
                 className={cn(selectionMode && "bg-muted")}
               />
-            }
-          >
-            <WrenchIcon />
-            Herramientas
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48">
-            <DropdownMenuItem onClick={() => setImportingLeads(true)}>
-              <UploadIcon />
-              Importar
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                selectionMode
-                  ? closeSelectionMode()
-                  : setSelectionMode(true)
               }
-              disabled={!selectionMode && filtered.length === 0}
             >
-              <PencilIcon />
-              {selectionMode ? "Cancelar edición" : "Editar varios"}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
-              <HistoryIcon />
-              Historial
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => router.push("/plantillas")}>
-              <FileTextIcon />
-              Plantillas
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <WrenchIcon className="size-4" />
+              Herramientas
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem onClick={() => setImportingLeads(true)}>
+                <UploadIcon />
+                Importar
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  selectionMode
+                    ? closeSelectionMode()
+                    : setSelectionMode(true)
+                }
+                disabled={!selectionMode && filtered.length === 0}
+              >
+                <PencilIcon />
+                {selectionMode ? "Cancelar edición" : "Editar varios"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+                <HistoryIcon />
+                Historial
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => router.push("/plantillas")}>
+                <FileTextIcon />
+                Plantillas
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-        <span className="ml-auto text-sm text-muted-foreground">
-          {isFiltering ? (
-            <span className="inline-flex items-center gap-1.5">
-              <Loader2Icon className="size-3.5 animate-spin" />
-              Buscando…
-            </span>
-          ) : (
-            `${filtered.length} de ${total} leads`
-          )}
-        </span>
+          <span className="ml-auto hidden text-sm text-muted-foreground tabular-nums sm:block">
+            {isFiltering ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2Icon className="size-3.5 animate-spin" />
+                Buscando…
+              </span>
+            ) : (
+              <>
+                <span className="font-medium text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                de {total} leads
+              </>
+            )}
+          </span>
+        </div>
+
+        {hasActiveChips && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {sort !== "updated_desc" && (
+              <FilterChip onRemove={() => setSort("updated_desc")}>
+                <ArrowUpDownIcon className="size-3 text-muted-foreground" />
+                {activeSort.label}
+              </FilterChip>
+            )}
+            {statusFilter !== "all" && (
+              <FilterChip onRemove={() => setStatusFilter("all")}>
+                <StatusDot status={statusFilter} className="size-3.5" />
+                {STATUSES.find((s) => s.value === statusFilter)?.label}
+              </FilterChip>
+            )}
+            {websiteStatusFilter !== "all" && (
+              <FilterChip onRemove={() => setWebsiteStatusFilter("all")}>
+                <WebsiteStatusDot status={websiteStatusFilter} className="size-3.5" />
+                {
+                  WEBSITE_STATUS_MAP[
+                    websiteStatusFilter as keyof typeof WEBSITE_STATUS_MAP
+                  ]?.label
+                }
+              </FilterChip>
+            )}
+            {activeTag && (
+              <FilterChip onRemove={() => setTagFilter("all")}>
+                <span
+                  className="size-2.5 rounded-full"
+                  style={{ backgroundColor: activeTag.color }}
+                />
+                {activeTag.name}
+              </FilterChip>
+            )}
+            {addedDateLabel && (
+              <FilterChip onRemove={() => setAddedDateFilter(undefined)}>
+                <CalendarDaysIcon className="size-3 text-muted-foreground" />
+                {addedDateLabel}
+              </FilterChip>
+            )}
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="ml-1 inline-flex h-7 cursor-pointer items-center rounded-full px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Restablecer
+            </button>
+          </div>
+        )}
       </div>
 
+      {selectionMode && selectedCount === 0 && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-dashed px-4 py-2.5">
+          <span className="text-xs text-muted-foreground">
+            Marca los leads que quieras editar o eliminar en bloque.
+          </span>
+          <Button variant="ghost" size="xs" onClick={closeSelectionMode}>
+            Cancelar
+          </Button>
+        </div>
+      )}
+
       {selectionMode && selectedCount > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2">
+        <div className="mb-3 flex animate-in flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-2 shadow-sm fade-in-0 slide-in-from-top-1">
+          <span className="grid size-6 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground tabular-nums">
+            {selectedCount}
+          </span>
           <span className="mr-auto text-sm font-medium">
-            {selectedCount} {selectedCount === 1 ? "lead seleccionado" : "leads seleccionados"}
+            {selectedCount === 1 ? "lead seleccionado" : "leads seleccionados"}
           </span>
           <Button
             variant="ghost"
@@ -834,7 +1015,7 @@ export function LeadsView({
       <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
         <Table>
           <TableHeader>
-            <TableRow className="hover:bg-transparent">
+            <TableRow className="hover:bg-transparent border-border/70">
               {selectionMode && (
                 <TableHead className="w-10 pl-4">
                   <input
@@ -854,15 +1035,32 @@ export function LeadsView({
                   />
                 </TableHead>
               )}
-              <TableHead className={selectionMode ? undefined : "pl-4"}>
+              <TableHead
+                className={cn(
+                  "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
+                  selectionMode ? undefined : "pl-5"
+                )}
+              >
                 Negocio
               </TableHead>
-              <TableHead className="hidden lg:table-cell">Etiquetas</TableHead>
-              <TableHead className="hidden md:table-cell">Web</TableHead>
-              <TableHead className="hidden xl:table-cell">Teléfono</TableHead>
-              <TableHead>Estado</TableHead>
-              <TableHead className="hidden sm:table-cell">Contacto</TableHead>
-              <TableHead>Follow-up</TableHead>
+              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
+                Etiquetas
+              </TableHead>
+              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase md:table-cell">
+                Web
+              </TableHead>
+              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase xl:table-cell">
+                Teléfono
+              </TableHead>
+              <TableHead className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                Estado
+              </TableHead>
+              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase sm:table-cell">
+                Contacto
+              </TableHead>
+              <TableHead className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                Follow-up
+              </TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -884,28 +1082,52 @@ export function LeadsView({
               <TableRow>
                 <TableCell
                   colSpan={selectionMode ? 9 : 8}
-                  className="h-32 text-center"
+                  className="h-64 text-center"
                 >
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <span>No hay leads que coincidan.</span>
-                    <Button size="sm" onClick={openNewLead}>
-                      <PlusIcon />
-                      Añadir lead
-                    </Button>
+                  <div className="mx-auto flex max-w-xs flex-col items-center gap-3">
+                    <div className="grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
+                      {hasFilters ? (
+                        <SearchXIcon className="size-5" />
+                      ) : (
+                        <UsersRoundIcon className="size-5" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">
+                        {hasFilters
+                          ? "Sin resultados"
+                          : "Aún no hay leads aquí"}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {hasFilters
+                          ? "Ningún lead coincide con los filtros actuales."
+                          : "Añade tu primer lead para empezar a hacer seguimiento."}
+                      </p>
+                    </div>
+                    {hasFilters ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={resetFilters}
+                      >
+                        <RotateCcwIcon />
+                        Limpiar filtros
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={openNewLead}>
+                        <PlusIcon />
+                        Añadir lead
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
             )}
             {!isFiltering && filtered.map((lead) => {
-              const overdue = isFollowUpOverdue(
-                lead.followUpDate,
-                lead.statuses
-              );
-              const today = isFollowUpToday(lead.followUpDate, lead.statuses);
               return (
                 <TableRow
                   key={lead.id}
-                  className="cursor-pointer"
+                  className="group/row cursor-pointer border-border/60"
                   data-state={selectedIds.has(lead.id) ? "selected" : undefined}
                   onClick={() => setOpenId(lead.id)}
                 >
@@ -931,42 +1153,54 @@ export function LeadsView({
                     </TableCell>
                   )}
                   <TableCell
-                    className={cn("max-w-56", !selectionMode && "pl-4")}
+                    className={cn("py-3", !selectionMode && "pl-5")}
                   >
-                    <button
-                      type="button"
-                      className="group/copy inline-flex max-w-full items-center gap-0.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      aria-label={`Copiar nombre de ${lead.name}`}
-                      title="Copiar nombre"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void copyLeadValue(
-                          lead.name,
-                          "Nombre",
-                          `name-${lead.id}`
-                        );
-                      }}
-                    >
-                      <span className="min-w-0 truncate font-medium">
-                        {lead.name}
-                      </span>
-                      {copiedField === `name-${lead.id}` ? (
-                        <CheckIcon className="ml-1 size-3.5 shrink-0 animate-in text-emerald-600 opacity-100 zoom-in-50" />
-                      ) : (
-                        <CopyIcon className="ml-1 size-3.5 shrink-0 opacity-0 transition-opacity group-focus-visible/copy:opacity-100 group-hover/copy:opacity-100" />
+                    <div className="min-w-0">
+                      <button
+                        type="button"
+                        className="group/name inline-flex max-w-full items-center rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        aria-label={`Copiar nombre de ${lead.name}`}
+                        title="Copiar nombre"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void copyLeadValue(
+                            lead.name,
+                            "Nombre",
+                            `name-${lead.id}`
+                          );
+                        }}
+                      >
+                        <span className="truncate font-medium">
+                          {lead.name}
+                        </span>
+                        <CopyHint copied={copiedField === `name-${lead.id}`} />
+                      </button>
+                      {lead.instagram && (
+                        <div className="truncate text-xs text-muted-foreground">
+                          @{lead.instagram}
+                        </div>
                       )}
-                    </button>
-                    {lead.instagram && (
-                      <div className="truncate text-xs text-muted-foreground">
-                        @{lead.instagram}
-                      </div>
-                    )}
+                    </div>
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
-                    <div className="flex max-w-44 flex-wrap gap-1">
-                      {lead.tags.map((tag) => (
+                    <div className="flex max-w-48 flex-wrap items-center gap-1">
+                      {lead.tags.slice(0, 2).map((tag) => (
                         <TagBadge key={tag.id} tag={tag} />
                       ))}
+                      {lead.tags.length > 2 && (
+                        <span
+                          className="inline-flex h-5 items-center rounded-full border px-1.5 text-[11px] font-medium whitespace-nowrap text-muted-foreground"
+                          title={lead.tags
+                            .slice(2)
+                            .map((tag) => tag.name)
+                            .join(", ")}
+                        >
+                          +{lead.tags.length - 2}
+                        </span>
+                      )}
+                      {lead.tags.length === 0 && (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
@@ -978,11 +1212,11 @@ export function LeadsView({
                       }
                     />
                   </TableCell>
-                  <TableCell className="hidden whitespace-nowrap text-muted-foreground xl:table-cell">
+                  <TableCell className="hidden xl:table-cell">
                     {lead.phone ? (
                       <button
                         type="button"
-                        className="group/copy inline-flex items-center gap-1.5 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className="group/copy inline-flex items-center rounded-sm text-sm text-muted-foreground tabular-nums outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                         aria-label={`Copiar teléfono de ${lead.name}`}
                         title="Copiar teléfono"
                         onClick={(event) => {
@@ -994,19 +1228,19 @@ export function LeadsView({
                           );
                         }}
                       >
-                        <PhoneIcon className="size-3.5" />
+                        <PhoneIcon className="mr-1.5 size-3.5" />
                         {lead.phone}
                         {copiedField === `phone-${lead.id}` ? (
-                          <CheckIcon className="ml-1 size-3.5 animate-in text-emerald-600 opacity-100 zoom-in-50" />
+                          <CheckIcon className="ml-1 size-3.5 shrink-0 animate-in text-emerald-600 opacity-100 zoom-in-50 dark:text-emerald-400" />
                         ) : (
-                          <CopyIcon className="ml-1 size-3.5 opacity-0 transition-opacity group-focus-visible/copy:opacity-100 group-hover/copy:opacity-100" />
+                          <CopyIcon className="ml-1 size-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100 group-focus-visible/copy:opacity-100" />
                         )}
                       </button>
                     ) : (
-                      "—"
+                      <span className="text-muted-foreground/50">—</span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="max-w-44">
                     <StatusSelect
                       leadId={lead.id}
                       statuses={lead.statuses}
@@ -1015,32 +1249,30 @@ export function LeadsView({
                       }
                     />
                   </TableCell>
-                  <TableCell className="hidden text-muted-foreground sm:table-cell">
+                  <TableCell className="hidden text-sm text-muted-foreground tabular-nums sm:table-cell">
                     {formatDateShort(lead.contactDate)}
                   </TableCell>
                   <TableCell>
-                    <span
-                      className={cn(
-                        overdue && "font-semibold text-destructive",
-                        today && "font-semibold text-brand"
-                      )}
-                    >
-                      {formatDateShort(lead.followUpDate)}
-                      {overdue && " · vencido"}
-                      {today && " · hoy"}
-                    </span>
+                    <FollowUpCell lead={lead} />
                   </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
+                  <TableCell
+                    className="pr-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={
-                          <Button variant="ghost" size="icon-sm">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-muted-foreground hover:text-foreground"
+                          >
                             <MoreHorizontalIcon />
                             <span className="sr-only">Acciones</span>
                           </Button>
                         }
                       />
-                      <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onClick={() => setMessageLead(lead)}>
                           <MessageSquareTextIcon />
                           Preparar mensaje
@@ -1049,6 +1281,7 @@ export function LeadsView({
                           <PencilIcon />
                           Editar
                         </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         {lead.instagram && (
                           <DropdownMenuItem
                             onClick={() =>
@@ -1089,22 +1322,27 @@ export function LeadsView({
       >
         {nextCursor && !isFiltering ? (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
+            className="rounded-full"
             onClick={() => void loadMore()}
             disabled={isLoadingMore}
           >
-            {isLoadingMore && <Loader2Icon className="animate-spin" />}
+            {isLoadingMore ? (
+              <Loader2Icon className="animate-spin" />
+            ) : null}
             {isLoadingMore ? "Cargando…" : "Cargar más leads"}
           </Button>
         ) : !isFiltering && filtered.length > 0 ? (
-          <span className="text-xs text-muted-foreground">
-            Se han cargado todos los leads.
+          <span className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px w-12 bg-border" />
+            Se han cargado todos los leads
+            <span className="h-px w-12 bg-border" />
           </span>
         ) : null}
       </div>
 
-      <LeadSheet
+      <LeadDetailsModal
         lead={openLead ?? null}
         onClose={closeSheet}
         onEdit={(lead) => setEditing(lead)}
@@ -1170,193 +1408,6 @@ export function LeadsView({
         }}
       />
     </div>
-  );
-}
-
-function InfoRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[110px_1fr] gap-2 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0">{children}</span>
-    </div>
-  );
-}
-
-function LeadSheet({
-  lead,
-  onClose,
-  onEdit,
-  onDelete,
-  onUseTemplate,
-  onStatusChange,
-}: {
-  lead: LeadWithTags | null;
-  onClose: () => void;
-  onEdit: (lead: LeadWithTags) => void;
-  onDelete: (lead: LeadWithTags) => void;
-  onUseTemplate: (lead: LeadWithTags) => void;
-  onStatusChange: (
-    leadId: number,
-    statuses: StatusKey[],
-    contactDate: string | null
-  ) => void;
-}) {
-  return (
-    <Sheet open={lead != null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-md">
-        {lead && (
-          <>
-            <SheetHeader className="border-b pb-4">
-              <SheetTitle className="pr-8 font-heading text-xl">
-                {lead.name}
-              </SheetTitle>
-              <SheetDescription className="sr-only">
-                Detalle del lead
-              </SheetDescription>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <StatusSelect
-                  leadId={lead.id}
-                  statuses={lead.statuses}
-                  onStatusesChange={(statuses, contactDate) =>
-                    onStatusChange(lead.id, statuses, contactDate)
-                  }
-                />
-                <WebsiteStatusBadge status={lead.websiteStatus} />
-                {lead.tags.map((tag) => (
-                  <TagBadge key={tag.id} tag={tag} />
-                ))}
-              </div>
-            </SheetHeader>
-
-            <div className="flex flex-col gap-3 p-4">
-              <InfoRow label="Instagram">
-                {lead.instagram ? (
-                  <a
-                    href={instagramUrl(lead.instagram)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-brand hover:underline"
-                  >
-                    @{lead.instagram}
-                    <ExternalLinkIcon className="size-3" />
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </InfoRow>
-              <InfoRow label="Web">
-                {lead.website ? (
-                  <a
-                    href={lead.website}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex max-w-full items-center gap-1 truncate text-brand hover:underline"
-                  >
-                    <span className="truncate">{lead.website}</span>
-                    <ExternalLinkIcon className="size-3 shrink-0" />
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </InfoRow>
-              <InfoRow label="Estado web">
-                <WebsiteStatusBadge status={lead.websiteStatus} />
-              </InfoRow>
-              <InfoRow label="Teléfono">
-                {lead.phone ? (
-                  <a
-                    href={`tel:${lead.phone}`}
-                    className="inline-flex items-center gap-1 hover:underline"
-                  >
-                    <PhoneIcon className="size-3" />
-                    {lead.phone}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </InfoRow>
-              <InfoRow label="WhatsApp">
-                {lead.phone ? (
-                  <a
-                    href={whatsappUrl(lead.phone)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-brand hover:underline"
-                  >
-                    <MessageCircleIcon className="size-3" />
-                    Abrir chat
-                    <ExternalLinkIcon className="size-3" />
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </InfoRow>
-              <InfoRow label="Dirección">
-                <a
-                  href={mapsUrl(lead)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex max-w-full min-w-0 items-center gap-1 hover:underline"
-                >
-                  <MapPinIcon className="size-3 shrink-0" />
-                  <span className="truncate">
-                    {lead.address ?? "Ver en Maps"}
-                  </span>
-                </a>
-              </InfoRow>
-              <InfoRow label="Contacto">{formatDate(lead.contactDate)}</InfoRow>
-              <InfoRow label="Follow-up">
-                <span
-                  className={cn(
-                    isFollowUpOverdue(lead.followUpDate, lead.statuses) &&
-                      "font-semibold text-destructive"
-                  )}
-                >
-                  {formatDate(lead.followUpDate)}
-                  {isFollowUpOverdue(lead.followUpDate, lead.statuses) &&
-                    " · vencido"}
-                </span>
-              </InfoRow>
-
-              {(lead.notes?.trim() || lead.problem?.trim()) && (
-                <div className="rounded-lg border bg-muted/40 p-3">
-                  <p className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                    Notas
-                  </p>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                    {lead.notes?.trim() || lead.problem}
-                  </p>
-                </div>
-              )}
-
-              <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2">
-                <Button onClick={() => onUseTemplate(lead)}>
-                  <MessageSquareTextIcon />
-                  Mensaje
-                </Button>
-                <Button variant="outline" onClick={() => onEdit(lead)}>
-                  <PencilIcon />
-                  Editar
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => onDelete(lead)}
-                  aria-label="Eliminar lead"
-                >
-                  <Trash2Icon />
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }
 

@@ -95,7 +95,7 @@ export function MessageTemplatesView({
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="bg-background pl-8"
+                className="bg-transparent pl-8 dark:bg-input/30"
                 placeholder="Buscar plantillas…"
                 aria-label="Buscar plantillas"
               />
@@ -120,8 +120,8 @@ export function MessageTemplatesView({
                       className={cn(
                         "group block w-full rounded-xl border p-3 text-left transition-all duration-150",
                         isSelected
-                          ? "border-brand/40 bg-brand/[0.045] shadow-xs"
-                          : "border-transparent hover:border-border hover:bg-background"
+                          ? "border-brand/40 bg-brand/[0.06] shadow-xs dark:border-brand/25 dark:bg-brand/[0.14]"
+                          : "border-transparent hover:border-border hover:bg-foreground/[0.04]"
                       )}
                     >
                       <span className="flex items-center gap-3">
@@ -157,7 +157,7 @@ export function MessageTemplatesView({
 
         </aside>
 
-        <main ref={detailRef} className="min-w-0 scroll-mt-4 bg-background">
+        <main ref={detailRef} className="min-w-0 scroll-mt-4">
           {selected ? (
             <div className="mx-auto max-w-3xl p-4 sm:p-6 lg:p-8">
               <div className="flex items-start gap-4 border-b pb-6">

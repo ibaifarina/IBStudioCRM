@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { format, parseISO, subDays } from "date-fns";
+import { differenceInCalendarDays, format, parseISO, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { ArrowRightIcon, BellIcon } from "lucide-react";
 import {
@@ -104,11 +104,26 @@ function buildTagData(leads: LeadWithTags[]): TagDatum[] {
 }
 
 function buildFollowUps(leads: LeadWithTags[]): LeadWithTags[] {
+  const today = parseISO(todayISO());
+
   return leads
     .filter(
       (lead) => lead.followUpDate && hasPendingStatus(lead.statuses)
     )
-    .sort((a, b) => b.followUpDate!.localeCompare(a.followUpDate!))
+    .sort((a, b) => {
+      const distanceA = Math.abs(
+        differenceInCalendarDays(parseISO(a.followUpDate!), today)
+      );
+      const distanceB = Math.abs(
+        differenceInCalendarDays(parseISO(b.followUpDate!), today)
+      );
+
+      return (
+        distanceA - distanceB ||
+        a.followUpDate!.localeCompare(b.followUpDate!) ||
+        a.id - b.id
+      );
+    })
     .slice(0, 8);
 }
 

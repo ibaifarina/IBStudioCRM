@@ -7,6 +7,7 @@ const PUBLIC_PATHS = [
   "/registro",
   "/recuperar-contrasena",
   "/__template-preview",
+  "/__leads-preview",
 ];
 
 function matchesPublicPath(pathname: string) {

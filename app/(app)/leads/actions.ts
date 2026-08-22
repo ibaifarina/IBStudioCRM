@@ -47,7 +47,11 @@ function validCursor(cursor: unknown): cursor is LeadCursor | null | undefined {
       !Number.isNaN(Date.parse(cursor.createdAt)) &&
       "name" in cursor &&
       typeof cursor.name === "string" &&
-      cursor.name.length <= 500)
+      cursor.name.length <= 500 &&
+      "followUpDate" in cursor &&
+      (cursor.followUpDate === null ||
+        (typeof cursor.followUpDate === "string" &&
+          !Number.isNaN(Date.parse(cursor.followUpDate)))))
   );
 }
 

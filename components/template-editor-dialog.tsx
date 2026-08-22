@@ -125,7 +125,7 @@ export function TemplateEditorDialog({
                   </div>
                   <div
                     className={cn(
-                      "relative overflow-hidden rounded-xl border bg-background transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+                      "relative overflow-hidden rounded-xl border bg-transparent transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/20",
                       draggingOver && "border-brand ring-3 ring-brand/15"
                     )}
                     onDragOver={(event) => {

@@ -83,7 +83,7 @@ export function TemplateIconPicker({
         render={
           <button
             type="button"
-            className="flex size-11 items-center justify-center rounded-xl border bg-background text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="flex size-11 items-center justify-center rounded-xl border bg-transparent text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none dark:bg-input/30"
             aria-label="Elegir icono"
           />
         }

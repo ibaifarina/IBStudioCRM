@@ -5,8 +5,10 @@ import {
   CheckIcon,
   CopyIcon,
   GripVerticalIcon,
+  MapPinnedIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { IconTile } from "@/components/icon-tile";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -20,6 +22,12 @@ import { buildGoogleMapsBookmarklet } from "@/lib/google-maps-bookmarklet";
 import { cn } from "@/lib/utils";
 
 const BOOKMARK_NAME = "Enviar negocio a IBStudio CRM";
+
+const STEPS = [
+  "Abre la ficha del negocio en Google Maps.",
+  `Pulsa el marcador “${BOOKMARK_NAME}”.`,
+  "El CRM se abre y muestra “Nuevo lead” ya rellenado.",
+];
 
 export function MapsBookmarkletCard() {
   const bookmarkRef = useRef<HTMLAnchorElement>(null);
@@ -74,17 +82,24 @@ export function MapsBookmarkletCard() {
   };
 
   return (
-    <Card className="lg:col-span-2">
+    <Card>
       <CardHeader>
-        <CardTitle>Extractor de Google Maps</CardTitle>
-        <CardDescription>
-          Añade este marcador para enviar los datos visibles de un negocio al
-          CRM y abrir el lead ya rellenado.
-        </CardDescription>
+        <div className="flex items-start gap-3">
+          <IconTile>
+            <MapPinnedIcon aria-hidden="true" />
+          </IconTile>
+          <div className="min-w-0">
+            <CardTitle>Extractor de Google Maps</CardTitle>
+            <CardDescription>
+              Añade este marcador para enviar los datos visibles de un negocio
+              al CRM y abrir el lead ya rellenado.
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="grid gap-3 rounded-xl border bg-muted/30 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-          <div>
+        <div className="grid gap-3 rounded-xl border border-dashed border-brand/30 bg-brand/[0.04] p-4 sm:grid-cols-[1fr_auto] sm:items-center dark:border-brand/25 dark:bg-brand/[0.08]">
+          <div className="min-w-0">
             <p className="font-medium">Instalación rápida</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Arrastra el botón hasta la barra de marcadores del navegador.
@@ -111,7 +126,7 @@ export function MapsBookmarkletCard() {
             }}
             className={cn(
               buttonVariants({ variant: "default", size: "lg" }),
-              "cursor-grab active:cursor-grabbing"
+              "cursor-grab shadow-sm active:cursor-grabbing"
             )}
             title="Arrastra este enlace a la barra de marcadores"
           >
@@ -120,9 +135,9 @@ export function MapsBookmarkletCard() {
           </a>
         </div>
 
-        <div className="grid gap-3">
+        <div className="grid gap-2.5">
           <div>
-            <p className="font-medium">Instalación manual</p>
+            <p className="text-sm font-medium">Instalación manual</p>
             <p className="text-xs text-muted-foreground">
               Crea un marcador y pega el script copiado en su campo URL.
             </p>
@@ -151,19 +166,18 @@ export function MapsBookmarkletCard() {
           </div>
         </div>
 
-        <ol className="grid gap-2 border-t pt-4 text-xs text-muted-foreground sm:grid-cols-3">
-          <li>
-            <span className="font-medium text-foreground">1.</span> Abre la ficha
-            del negocio en Google Maps.
-          </li>
-          <li>
-            <span className="font-medium text-foreground">2.</span> Pulsa el
-            marcador “{BOOKMARK_NAME}”.
-          </li>
-          <li>
-            <span className="font-medium text-foreground">3.</span> El CRM se
-            abre y muestra “Nuevo lead” ya rellenado.
-          </li>
+        <ol className="grid gap-2 sm:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li
+              key={step}
+              className="flex items-start gap-2.5 rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground"
+            >
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full border bg-background text-[10px] font-semibold tabular-nums text-foreground">
+                {index + 1}
+              </span>
+              <span>{step}</span>
+            </li>
+          ))}
         </ol>
       </CardContent>
     </Card>

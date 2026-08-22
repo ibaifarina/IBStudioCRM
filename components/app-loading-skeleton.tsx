@@ -64,27 +64,35 @@ export function LeadsLoadingSkeleton() {
   return (
     <LoadingRegion className="mx-auto max-w-6xl px-4 py-8 md:px-8">
       <PageHeaderSkeleton />
-      <div className="mb-4 flex flex-wrap gap-2">
-        <Skeleton className="h-9 w-full max-w-xs" />
-        <Skeleton className="h-9 w-24" />
-        <Skeleton className="h-9 w-24" />
-        <Skeleton className="h-9 w-28" />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Skeleton className="h-9 w-full max-w-xs rounded-lg" />
+        <Skeleton className="h-9 w-24 rounded-lg" />
+        <Skeleton className="h-9 w-28 rounded-lg" />
       </div>
       <div className="overflow-hidden rounded-xl border bg-card">
-        <div className="grid grid-cols-[1.4fr_.8fr_.8fr_.5fr] gap-4 border-b px-4 py-3">
+        <div className="flex items-center gap-6 border-b px-5 py-2.5">
           {TABLE_ROWS.slice(0, 4).map((cell) => (
-            <Skeleton key={cell} className="h-3 w-20 max-w-full" />
+            <Skeleton key={cell} className="h-2.5 w-16 max-w-full" />
           ))}
+          <Skeleton className="ml-auto h-2.5 w-10" />
         </div>
         {TABLE_ROWS.map((row) => (
           <div
             key={row}
-            className="grid grid-cols-[1.4fr_.8fr_.8fr_.5fr] gap-4 border-b px-4 py-4 last:border-b-0"
+            className="flex items-center gap-6 border-b px-5 py-3 last:border-b-0"
           >
-            <Skeleton className="h-4 w-32 max-w-full" />
-            <Skeleton className="h-4 w-20 max-w-full" />
-            <Skeleton className="h-5 w-24 max-w-full rounded-full" />
-            <Skeleton className="h-4 w-12 max-w-full" />
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="min-w-0 space-y-1.5">
+                <Skeleton className="h-4 w-36 max-w-full" />
+                <Skeleton className="h-3 w-24 max-w-full" />
+              </div>
+            </div>
+            <Skeleton className="hidden h-5 w-16 shrink-0 rounded-full lg:block" />
+            <Skeleton className="hidden size-7 shrink-0 rounded-lg md:block" />
+            <Skeleton className="hidden h-4 w-28 shrink-0 xl:block" />
+            <Skeleton className="h-5 w-28 shrink-0 rounded-full" />
+            <Skeleton className="hidden h-3 w-12 shrink-0 sm:block" />
+            <Skeleton className="h-3 w-14 shrink-0" />
           </div>
         ))}
       </div>
@@ -106,39 +114,87 @@ export function MapLoadingSkeleton() {
   );
 }
 
+export function TemplatesLoadingSkeleton() {
+  return (
+    <LoadingRegion className="mx-auto max-w-6xl px-4 py-8 md:px-8">
+      <PageHeaderSkeleton action />
+      <div className="grid min-h-[680px] overflow-hidden rounded-2xl border bg-card shadow-xs lg:grid-cols-[360px_minmax(0,1fr)]">
+        <aside className="border-b lg:border-r lg:border-b-0">
+          <div className="p-3">
+            <Skeleton className="h-9 w-full rounded-lg" />
+            <Skeleton className="mt-2 h-3 w-24" />
+          </div>
+          <div className="space-y-1 p-2">
+            {TABLE_ROWS.map((row) => (
+              <div key={row} className="rounded-xl p-3">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="size-5 shrink-0 rounded-md" />
+                  <Skeleton className="h-4 w-32 max-w-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+        <main className="mx-auto hidden max-w-3xl flex-1 p-8 sm:block">
+          <div className="flex items-start gap-4 border-b pb-6">
+            <Skeleton className="size-6 shrink-0" />
+            <Skeleton className="h-7 flex-1 max-w-56" />
+            <Skeleton className="h-9 w-28" />
+          </div>
+          <div className="mt-8 space-y-6">
+            {TABLE_ROWS.slice(0, 3).map((field) => (
+              <div key={field}>
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="mt-2 h-10 w-full rounded-lg" />
+              </div>
+            ))}
+            <div className="flex justify-end gap-2 pt-2">
+              <Skeleton className="h-10 w-36 rounded-lg" />
+              <Skeleton className="h-10 w-24 rounded-lg" />
+            </div>
+          </div>
+        </main>
+      </div>
+    </LoadingRegion>
+  );
+}
+
 export function AccountLoadingSkeleton() {
   return (
     <LoadingRegion className="mx-auto max-w-6xl px-4 py-8 md:px-8">
       <PageHeaderSkeleton action />
-      <div className="mb-4 rounded-xl border bg-card p-6">
-        <div className="flex items-center gap-3">
-          <Skeleton className="size-10 rounded-full" />
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-3 w-48" />
-          </div>
+      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-x-10">
+        <div
+          role="presentation"
+          className="h-fit space-y-1 rounded-xl border bg-card p-1.5"
+        >
+          {TABLE_ROWS.slice(0, 4).map((item) => (
+            <div key={item} className="flex items-center gap-2 px-2.5 py-2">
+              <Skeleton className="size-4" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          ))}
         </div>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {TABLE_ROWS.slice(0, 2).map((card) => (
-          <div key={card} className="rounded-xl border bg-card p-6">
-            <Skeleton className="h-5 w-24" />
-            <Skeleton className="mt-2 h-3 w-64 max-w-full" />
-            <Skeleton className="mt-7 h-4 w-16" />
-            <Skeleton className="mt-2 h-9 w-full" />
-            <Skeleton className="mt-5 h-9 w-28" />
-          </div>
-        ))}
-        <div className="rounded-xl border bg-card p-6 lg:col-span-2">
-          <Skeleton className="h-5 w-28" />
-          <Skeleton className="mt-2 h-3 w-80 max-w-full" />
-          <div className="mt-7 max-w-md space-y-4">
-            {TABLE_ROWS.slice(0, 3).map((field) => (
-              <div key={field}>
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="mt-2 h-9 w-full" />
+        <div className="min-w-0 space-y-4">
+          <div className="rounded-xl border bg-card p-4">
+            <div className="flex items-center gap-4">
+              <Skeleton className="size-14 rounded-full" />
+              <div className="min-w-0 space-y-2">
+                <Skeleton className="h-5 w-40 max-w-full" />
+                <Skeleton className="h-3.5 w-56 max-w-full" />
               </div>
-            ))}
+            </div>
+          </div>
+          <div className="rounded-xl border bg-card p-4">
+            <div className="flex items-center gap-3">
+              <Skeleton className="size-8 rounded-lg" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-3 w-64 max-w-full" />
+              </div>
+            </div>
+            <Skeleton className="mt-6 h-9 w-full" />
+            <Skeleton className="mt-5 h-8 w-28" />
           </div>
         </div>
       </div>

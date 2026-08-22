@@ -253,8 +253,8 @@ function safeSearchTerm(value: string) {
 const LEAD_SORT_CONFIG: Record<
   LeadSortKey,
   {
-    column: "updated_at" | "created_at" | "name";
-    cursorKey: "updatedAt" | "createdAt" | "name";
+    column: "updated_at" | "created_at" | "follow_up_date" | "name";
+    cursorKey: "updatedAt" | "createdAt" | "followUpDate" | "name";
     ascending: boolean;
   }
 > = {
@@ -272,6 +272,16 @@ const LEAD_SORT_CONFIG: Record<
     column: "created_at",
     cursorKey: "createdAt",
     ascending: true,
+  },
+  follow_up_asc: {
+    column: "follow_up_date",
+    cursorKey: "followUpDate",
+    ascending: true,
+  },
+  follow_up_desc: {
+    column: "follow_up_date",
+    cursorKey: "followUpDate",
+    ascending: false,
   },
   name_asc: { column: "name", cursorKey: "name", ascending: true },
   name_desc: { column: "name", cursorKey: "name", ascending: false },
@@ -333,14 +343,29 @@ export async function getLeadsPage({
     }
     if (cursor) {
       const comparison = sortConfig.ascending ? "gt" : "lt";
-      const cursorValue = postgrestFilterValue(cursor[sortConfig.cursorKey]);
-      query = query.or(
-        `${sortConfig.column}.${comparison}.${cursorValue},and(${sortConfig.column}.eq.${cursorValue},id.${comparison}.${cursor.id})`
-      );
+      const rawCursorValue = cursor[sortConfig.cursorKey];
+
+      if (sortConfig.column === "follow_up_date" && rawCursorValue == null) {
+        query = query
+          .is("follow_up_date", null)
+          [comparison]("id", cursor.id);
+      } else {
+        const cursorValue = postgrestFilterValue(rawCursorValue!);
+        const nullDates =
+          sortConfig.column === "follow_up_date"
+            ? ",follow_up_date.is.null"
+            : "";
+        query = query.or(
+          `${sortConfig.column}.${comparison}.${cursorValue},and(${sortConfig.column}.eq.${cursorValue},id.${comparison}.${cursor.id})${nullDates}`
+        );
+      }
     }
 
     return query
-      .order(sortConfig.column, { ascending: sortConfig.ascending })
+      .order(sortConfig.column, {
+        ascending: sortConfig.ascending,
+        nullsFirst: false,
+      })
       .order("id", { ascending: sortConfig.ascending })
       .limit(LEADS_PAGE_SIZE + 1);
   };
@@ -369,6 +394,7 @@ export async function getLeadsPage({
             name: lastLead.name,
             createdAt: lastLead.createdAt,
             updatedAt: lastLead.updatedAt,
+            followUpDate: lastLead.followUpDate,
           }
         : null,
   };

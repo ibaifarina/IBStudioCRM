@@ -3,9 +3,9 @@
 import { useTransition } from "react";
 import {
   CircleHelpIcon,
+  GlobeIcon,
+  GlobeXIcon,
   HistoryIcon,
-  WifiIcon,
-  WifiOffIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -31,9 +31,9 @@ export function WebsiteStatusIcon({
 }) {
   const Icon =
     status === "tiene_web"
-      ? WifiIcon
+      ? GlobeIcon
       : status === "no_tiene_web"
-        ? WifiOffIcon
+        ? GlobeXIcon
         : status === "web_antigua"
           ? HistoryIcon
           : CircleHelpIcon;

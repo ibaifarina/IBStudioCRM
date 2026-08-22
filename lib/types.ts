@@ -49,7 +49,7 @@ export type MessageTemplate = {
 
 export type LeadCursor = Pick<
   Lead,
-  "id" | "name" | "createdAt" | "updatedAt"
+  "id" | "name" | "createdAt" | "updatedAt" | "followUpDate"
 >;
 
 export type LeadSort = LeadSortKey;
