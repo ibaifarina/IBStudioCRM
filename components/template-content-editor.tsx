@@ -51,9 +51,12 @@ function caretRangeFromPoint(x: number, y: number): Range | null {
 
 function wordBoundaryOffsets(text: string): number[] {
   const offsets = new Set<number>([0, text.length]);
+  let previousWordEnd: number | null = null;
   for (const match of text.matchAll(/\S+/g)) {
-    offsets.add(match.index);
-    offsets.add(match.index + match[0].length);
+    if (previousWordEnd !== null && match.index > previousWordEnd) {
+      offsets.add(Math.round((previousWordEnd + match.index) / 2));
+    }
+    previousWordEnd = match.index + match[0].length;
   }
   return [...offsets];
 }
