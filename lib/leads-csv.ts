@@ -1,11 +1,24 @@
 import {
+  CONTACT_CHANNELS,
+  defaultNextActionForStatus,
+  isValidContactChannel,
+  isValidLeadSource,
+  isValidNextAction,
   isValidStatus,
   isValidWebsiteStatus,
+  LEAD_SOURCES,
+  NEXT_ACTIONS,
+  normalizeLeadStatus,
   STATUSES,
   WEBSITE_STATUSES,
+  type ContactChannelKey,
+  type LeadSourceKey,
+  type NextActionKey,
   type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
+import { dateInputToTimestamp } from "@/lib/dates";
+import { normalizeInstagramUsername } from "@/lib/lead-identifiers";
 
 const HEADERS = [
   "id_original",
@@ -26,6 +39,16 @@ const HEADERS = [
   "etiquetas_json",
   "fecha_creacion",
   "fecha_actualizacion",
+  "contacted_at",
+  "replied_at",
+  "last_contact_at",
+  "last_outbound_at",
+  "last_inbound_at",
+  "contact_channel",
+  "next_action",
+  "next_action_at",
+  "source",
+  "google_place_id",
 ] as const;
 
 const MAX_ROWS = 5_000;
@@ -45,6 +68,16 @@ export type CsvLead = {
   statuses: StatusKey[];
   contactDate: string | null;
   followUpDate: string | null;
+  contactedAt: string | null;
+  repliedAt: string | null;
+  lastContactAt: string | null;
+  lastOutboundAt: string | null;
+  lastInboundAt: string | null;
+  contactChannel: ContactChannelKey | null;
+  nextAction: NextActionKey;
+  nextActionAt: string | null;
+  source: LeadSourceKey;
+  googlePlaceId: string | null;
   tags: string[];
   createdAt: string | null;
   updatedAt: string | null;
@@ -83,6 +116,16 @@ export function serializeLeadsCsv(leads: ExportLead[]): string {
     JSON.stringify(lead.tags),
     lead.createdAt,
     lead.updatedAt,
+    lead.contactedAt,
+    lead.repliedAt,
+    lead.lastContactAt,
+    lead.lastOutboundAt,
+    lead.lastInboundAt,
+    lead.contactChannel,
+    lead.nextAction,
+    lead.nextActionAt,
+    lead.source,
+    lead.googlePlaceId,
   ]);
 
   // BOM para que Excel detecte UTF-8 y CRLF para máxima compatibilidad.
@@ -163,9 +206,43 @@ function normalizeStatus(value: string): StatusKey | null {
   const normalized = normalizeHeader(value);
   if (isValidStatus(normalized)) return normalized;
 
+  if (normalized === "seguimiento" || normalized === "revisar_mas_tarde") {
+    return normalizeLeadStatus(normalized);
+  }
+
   return (
     STATUSES.find((status) => normalizeHeader(status.label) === normalized)?.value ??
     null
+  );
+}
+
+function normalizeNextAction(value: string): NextActionKey | null {
+  const normalized = normalizeHeader(value);
+  if (isValidNextAction(normalized)) return normalized;
+  return (
+    NEXT_ACTIONS.find(
+      (action) => normalizeHeader(action.label) === normalized
+    )?.value ?? null
+  );
+}
+
+function normalizeContactChannel(value: string): ContactChannelKey | null {
+  const normalized = normalizeHeader(value);
+  if (isValidContactChannel(normalized)) return normalized;
+  return (
+    CONTACT_CHANNELS.find(
+      (channel) => normalizeHeader(channel.label) === normalized
+    )?.value ?? null
+  );
+}
+
+function normalizeLeadSource(value: string): LeadSourceKey | null {
+  const normalized = normalizeHeader(value);
+  if (isValidLeadSource(normalized)) return normalized;
+  return (
+    LEAD_SOURCES.find(
+      (source) => normalizeHeader(source.label) === normalized
+    )?.value ?? null
   );
 }
 
@@ -361,6 +438,20 @@ export function parseLeadsCsv(input: string): CsvLead[] {
     tags: findColumn(headers, "etiquetas_json", "etiquetas", "tags"),
     createdAt: findColumn(headers, "fecha_creacion", "created_at"),
     updatedAt: findColumn(headers, "fecha_actualizacion", "updated_at"),
+    contactedAt: findColumn(headers, "contacted_at"),
+    repliedAt: findColumn(headers, "replied_at"),
+    lastContactAt: findColumn(headers, "last_contact_at"),
+    lastOutboundAt: findColumn(headers, "last_outbound_at"),
+    lastInboundAt: findColumn(headers, "last_inbound_at"),
+    contactChannel: findColumn(headers, "contact_channel", "canal_contacto"),
+    nextAction: findColumn(headers, "next_action", "proxima_accion"),
+    nextActionAt: findColumn(
+      headers,
+      "next_action_at",
+      "fecha_proxima_accion"
+    ),
+    source: findColumn(headers, "source", "fuente"),
+    googlePlaceId: findColumn(headers, "google_place_id", "place_id"),
   };
 
   if (columns.name < 0) {
@@ -393,6 +484,61 @@ export function parseLeadsCsv(input: string): CsvLead[] {
       rawStatus,
       rowNumber
     );
+    const status = normalizeLeadStatus(statuses[0], [rawStatus, ...statuses]);
+    const workflowText = `${get(row, columns.statuses)} ${rawStatus}`
+      .toLocaleLowerCase("es")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[\s-]+/g, "_");
+
+    const rawContactDate = parseDate(
+      get(row, columns.contactDate),
+      "la fecha de contacto",
+      rowNumber
+    );
+    const rawFollowUpDate = parseDate(
+      get(row, columns.followUpDate),
+      "la fecha de seguimiento",
+      rowNumber
+    );
+
+    const explicitNextActionValue = optional(get(row, columns.nextAction));
+    const explicitNextAction = explicitNextActionValue
+      ? normalizeNextAction(explicitNextActionValue)
+      : null;
+    if (explicitNextActionValue && !explicitNextAction) {
+      throw new CsvImportError(
+        `Fila ${rowNumber}: la próxima acción “${explicitNextActionValue}” no es válida.`
+      );
+    }
+    const nextAction = explicitNextAction ??
+      (workflowText.includes("revisar_mas_tarde")
+        ? "revisar_mas_tarde"
+        : workflowText.includes("seguimiento") || rawFollowUpDate
+          ? "hacer_follow_up"
+          : defaultNextActionForStatus(status));
+    const finalNextAction =
+      status === "cliente" || status === "descartado"
+        ? "sin_accion"
+        : nextAction;
+
+    const rawContactChannel = optional(get(row, columns.contactChannel));
+    const contactChannel = rawContactChannel
+      ? normalizeContactChannel(rawContactChannel)
+      : null;
+    if (rawContactChannel && !contactChannel) {
+      throw new CsvImportError(
+        `Fila ${rowNumber}: el canal “${rawContactChannel}” no es válido.`
+      );
+    }
+
+    const rawSource = optional(get(row, columns.source));
+    const source = rawSource ? normalizeLeadSource(rawSource) : "importacion";
+    if (!source) {
+      throw new CsvImportError(
+        `Fila ${rowNumber}: la fuente “${rawSource}” no es válida.`
+      );
+    }
 
     const rawWebsiteStatus =
       optional(get(row, columns.websiteStatus)) ?? "sin_revisar";
@@ -405,7 +551,8 @@ export function parseLeadsCsv(input: string): CsvLead[] {
 
     return {
       name,
-      instagram: optional(get(row, columns.instagram))?.replace(/^@/, "") ?? null,
+      instagram:
+        normalizeInstagramUsername(optional(get(row, columns.instagram))) || null,
       website: optional(get(row, columns.website)),
       websiteStatus,
       phone: optional(get(row, columns.phone)),
@@ -414,18 +561,48 @@ export function parseLeadsCsv(input: string): CsvLead[] {
       lng: parseNumber(get(row, columns.lng), "la longitud", rowNumber, -180, 180),
       problem: optional(get(row, columns.problem)),
       notes: optional(get(row, columns.notes)),
-      status: statuses[0],
-      statuses,
-      contactDate: parseDate(
-        get(row, columns.contactDate),
-        "la fecha de contacto",
+      status,
+      statuses: [status],
+      contactDate: rawContactDate,
+      followUpDate: rawFollowUpDate,
+      contactedAt:
+        parseTimestamp(
+          get(row, columns.contactedAt),
+          "contacted_at",
+          rowNumber
+        ) ?? (rawContactDate ? dateInputToTimestamp(rawContactDate) : null),
+      repliedAt: parseTimestamp(
+        get(row, columns.repliedAt),
+        "replied_at",
         rowNumber
       ),
-      followUpDate: parseDate(
-        get(row, columns.followUpDate),
-        "la fecha de seguimiento",
+      lastContactAt: parseTimestamp(
+        get(row, columns.lastContactAt),
+        "last_contact_at",
         rowNumber
       ),
+      lastOutboundAt: parseTimestamp(
+        get(row, columns.lastOutboundAt),
+        "last_outbound_at",
+        rowNumber
+      ),
+      lastInboundAt: parseTimestamp(
+        get(row, columns.lastInboundAt),
+        "last_inbound_at",
+        rowNumber
+      ),
+      contactChannel,
+      nextAction: finalNextAction,
+      nextActionAt:
+        finalNextAction === "sin_accion"
+          ? null
+          : parseTimestamp(
+              get(row, columns.nextActionAt),
+              "next_action_at",
+              rowNumber
+            ) ?? (rawFollowUpDate ? dateInputToTimestamp(rawFollowUpDate) : null),
+      source,
+      googlePlaceId: optional(get(row, columns.googlePlaceId)),
       tags: parseTags(get(row, columns.tags), rowNumber),
       createdAt: parseTimestamp(
         get(row, columns.createdAt),

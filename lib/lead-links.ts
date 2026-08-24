@@ -9,6 +9,12 @@ export function whatsappUrl(phone: string) {
   return `https://wa.me/${digits}`;
 }
 
+export function whatsappMessageUrl(phone: string, message: string) {
+  const url = new URL(whatsappUrl(phone));
+  url.searchParams.set("text", message);
+  return url.toString();
+}
+
 export function mapsUrl(lead: LeadWithTags) {
   if (lead.lat != null && lead.lng != null) {
     return `https://www.google.com/maps?q=${lead.lat},${lead.lng}`;

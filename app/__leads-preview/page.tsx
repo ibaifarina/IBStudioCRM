@@ -9,6 +9,18 @@ const TAGS = [
   { id: 3, name: "Gimnasio", color: "#059669" },
 ];
 
+const TEMPLATES = [
+  {
+    id: 1,
+    name: "Primer contacto",
+    icon: "user-round",
+    content:
+      "Hola [nombre], he visto vuestro negocio y creo que podemos ayudaros con [servicio]. ¿Te apetece que lo comentemos?",
+    createdAt: "2026-08-19T09:00:00.000Z",
+    updatedAt: "2026-08-19T09:00:00.000Z",
+  },
+];
+
 function lead(
   partial: Partial<LeadWithTags> & Pick<LeadWithTags, "id" | "name">
 ): LeadWithTags {
@@ -24,10 +36,22 @@ function lead(
     notes: null,
     status: "por_contactar",
     statuses: ["por_contactar"],
+    contactedAt: null,
+    repliedAt: null,
+    lastContactAt: null,
+    lastOutboundAt: null,
+    lastInboundAt: null,
+    contactChannel: null,
+    nextAction: "contactar",
+    nextActionAt: null,
+    source: "manual",
+    googlePlaceId: null,
     contactDate: null,
     followUpDate: null,
     createdAt: "2026-08-01T09:00:00.000Z",
     updatedAt: "2026-08-20T09:00:00.000Z",
+    recentActivities: [],
+    hasMoreActivity: false,
     tags: [],
     ...partial,
   };
@@ -42,12 +66,50 @@ const leads: LeadWithTags[] = [
     websiteStatus: "web_antigua",
     phone: "+34 612 34 56 78",
     address: "Carrer de Sant Pau, 44",
-    status: "seguimiento",
-    statuses: ["contactado", "seguimiento"],
+    status: "contactado",
+    statuses: ["contactado"],
+    contactedAt: "2026-08-14T09:00:00.000Z",
+    lastContactAt: "2026-08-14T09:00:00.000Z",
+    lastOutboundAt: "2026-08-14T09:00:00.000Z",
+    contactChannel: "whatsapp",
+    nextAction: "hacer_follow_up",
+    nextActionAt: "2026-08-18T09:00:00.000Z",
     contactDate: "2026-08-14",
     followUpDate: "2026-08-18",
     notes:
       "Interesados en renovar la web y añadir reservas online. Prefieren llamadas por la mañana.",
+    recentActivities: [
+      {
+        id: 12,
+        leadId: 1,
+        type: "followup_scheduled",
+        occurredAt: "2026-08-20T09:00:00.000Z",
+        metadata: { scheduled_at: "2026-08-18T09:00:00.000Z" },
+        description: null,
+        origin: "app",
+        templateId: null,
+      },
+      {
+        id: 11,
+        leadId: 1,
+        type: "contact_marked",
+        occurredAt: "2026-08-14T09:00:00.000Z",
+        metadata: { channel: "whatsapp" },
+        description: null,
+        origin: "manual",
+        templateId: null,
+      },
+      {
+        id: 10,
+        leadId: 1,
+        type: "lead_created",
+        occurredAt: "2026-08-01T09:00:00.000Z",
+        metadata: {},
+        description: null,
+        origin: "app",
+        templateId: null,
+      },
+    ],
     tags: [TAGS[0]],
   }),
   lead({
@@ -58,6 +120,13 @@ const leads: LeadWithTags[] = [
     phone: "+34 690 11 22 33",
     status: "respondio",
     statuses: ["respondio"],
+    contactedAt: "2026-08-19T09:00:00.000Z",
+    repliedAt: "2026-08-23T16:30:00.000Z",
+    lastContactAt: "2026-08-23T16:30:00.000Z",
+    lastInboundAt: "2026-08-23T16:30:00.000Z",
+    contactChannel: "instagram",
+    nextAction: "responder",
+    nextActionAt: `${todayISO()}T09:00:00.000Z`,
     contactDate: "2026-08-19",
     followUpDate: todayISO(),
     tags: [TAGS[2], TAGS[1], TAGS[0]],
@@ -69,6 +138,11 @@ const leads: LeadWithTags[] = [
     phone: "+34 655 44 33 22",
     status: "cliente",
     statuses: ["cliente"],
+    contactedAt: "2026-07-02T09:00:00.000Z",
+    repliedAt: "2026-07-04T11:00:00.000Z",
+    lastContactAt: "2026-07-04T11:00:00.000Z",
+    contactChannel: "phone",
+    nextAction: "sin_accion",
     contactDate: "2026-07-02",
     followUpDate: "2026-09-01",
     tags: [TAGS[1]],
@@ -78,8 +152,9 @@ const leads: LeadWithTags[] = [
     name: "Bar Marsella 1920",
     instagram: "barmarsella",
     websiteStatus: "sin_revisar",
-    status: "revisar_mas_tarde",
-    statuses: ["revisar_mas_tarde"],
+    status: "por_contactar",
+    statuses: ["por_contactar"],
+    nextAction: "revisar_mas_tarde",
     followUpDate: null,
   }),
   lead({
@@ -90,6 +165,8 @@ const leads: LeadWithTags[] = [
     address: "Avinguda Diagonal, 405",
     status: "por_contactar",
     statuses: ["por_contactar"],
+    nextAction: "contactar",
+    nextActionAt: "2026-08-10T09:00:00.000Z",
     followUpDate: "2026-08-10",
   }),
 ];
@@ -116,7 +193,7 @@ export default function LeadsPreviewPage() {
             today={todayISO()}
             createdDates={["2026-08-01", "2026-08-03", todayISO()]}
             initialOpenLead={null}
-            templates={[]}
+            templates={TEMPLATES}
           />
         </div>
       </main>

@@ -5,6 +5,7 @@ import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { showContactDateNoticeToast } from "@/components/contact-date-notice";
 import { DateField } from "@/components/date-field";
+import { NextActionPicker } from "@/components/next-action-badge";
 import { StatusPicker } from "@/components/status-badge";
 import { TagPicker } from "@/components/tag-picker";
 import { WebsiteStatusDot } from "@/components/website-status-badge";
@@ -28,9 +29,11 @@ import {
 import { updateLeadsBulk } from "@/lib/actions";
 import {
   WEBSITE_STATUSES,
+  type NextActionKey,
   type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
+import { dateInputToTimestamp } from "@/lib/dates";
 import type { Tag } from "@/lib/types";
 
 type TagMode = "add" | "remove" | "replace";
@@ -77,31 +80,33 @@ export function BulkEditLeadsDialog({
   onUpdated: () => void;
 }) {
   const [applyStatus, setApplyStatus] = useState(false);
-  const [statuses, setStatuses] = useState<StatusKey[]>(["por_contactar"]);
+  const [status, setStatus] = useState<StatusKey>("por_contactar");
   const [applyWebsiteStatus, setApplyWebsiteStatus] = useState(false);
   const [websiteStatus, setWebsiteStatus] =
     useState<WebsiteStatusKey>("sin_revisar");
   const [applyTags, setApplyTags] = useState(false);
   const [tagMode, setTagMode] = useState<TagMode>("add");
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
-  const [applyFollowUp, setApplyFollowUp] = useState(false);
-  const [followUpDate, setFollowUpDate] = useState("");
+  const [applyNextAction, setApplyNextAction] = useState(false);
+  const [nextAction, setNextAction] = useState<NextActionKey>("contactar");
+  const [nextActionDate, setNextActionDate] = useState("");
   const [pending, startTransition] = useTransition();
 
   const reset = () => {
     setApplyStatus(false);
-    setStatuses(["por_contactar"]);
+    setStatus("por_contactar");
     setApplyWebsiteStatus(false);
     setWebsiteStatus("sin_revisar");
     setApplyTags(false);
     setTagMode("add");
     setSelectedTags([]);
-    setApplyFollowUp(false);
-    setFollowUpDate("");
+    setApplyNextAction(false);
+    setNextAction("contactar");
+    setNextActionDate("");
   };
 
   const canSubmit =
-    (applyStatus || applyWebsiteStatus || applyTags || applyFollowUp) &&
+    (applyStatus || applyWebsiteStatus || applyTags || applyNextAction) &&
     (!applyTags || tagMode === "replace" || selectedTags.length > 0);
 
   return (
@@ -132,8 +137,8 @@ export function BulkEditLeadsDialog({
             />
             {applyStatus && (
               <StatusPicker
-                statuses={statuses}
-                onChange={setStatuses}
+                status={status}
+                onChange={setStatus}
                 className="w-full"
               />
             )}
@@ -215,23 +220,27 @@ export function BulkEditLeadsDialog({
 
           <div className="grid gap-2 rounded-lg border p-3">
             <FieldToggle
-              checked={applyFollowUp}
-              onChange={setApplyFollowUp}
-              label="Cambiar follow-up"
+              checked={applyNextAction}
+              onChange={setApplyNextAction}
+              label="Cambiar próxima acción"
             />
-            {applyFollowUp && (
+            {applyNextAction && (
               <>
-                <Label className="sr-only">Fecha de follow-up</Label>
-                <DateField
-                  value={followUpDate}
-                  onChange={setFollowUpDate}
-                  placeholder="Sin fecha"
-                  showTodayButton
+                <NextActionPicker
+                  action={nextAction}
+                  onChange={setNextAction}
+                  className="w-full"
                 />
-                {!followUpDate && (
-                  <p className="text-xs text-muted-foreground">
-                    Se quitará la fecha de follow-up actual.
-                  </p>
+                {nextAction !== "sin_accion" && (
+                  <>
+                    <Label className="sr-only">Fecha de la próxima acción</Label>
+                    <DateField
+                      value={nextActionDate}
+                      onChange={setNextActionDate}
+                      placeholder="Pendiente, sin fecha"
+                      showTodayButton
+                    />
+                  </>
                 )}
               </>
             )}
@@ -252,7 +261,7 @@ export function BulkEditLeadsDialog({
               startTransition(async () => {
                 const result = await updateLeadsBulk({
                   leadIds,
-                  ...(applyStatus ? { statuses } : {}),
+                  ...(applyStatus ? { status } : {}),
                   ...(applyWebsiteStatus ? { websiteStatus } : {}),
                   ...(applyTags
                     ? {
@@ -262,8 +271,14 @@ export function BulkEditLeadsDialog({
                         },
                       }
                     : {}),
-                  ...(applyFollowUp
-                    ? { followUpDate: followUpDate || null }
+                  ...(applyNextAction
+                    ? {
+                        nextAction,
+                        nextActionAt:
+                          nextAction === "sin_accion" || !nextActionDate
+                            ? null
+                            : dateInputToTimestamp(nextActionDate),
+                      }
                     : {}),
                 });
 
@@ -275,7 +290,7 @@ export function BulkEditLeadsDialog({
                 toast.success(
                   `${result.updated} ${result.updated === 1 ? "lead actualizado" : "leads actualizados"}`
                 );
-                if (applyStatus && statuses.includes("contactado")) {
+                if (applyStatus && status === "contactado") {
                   showContactDateNoticeToast();
                 }
                 reset();

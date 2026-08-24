@@ -3,28 +3,38 @@
 import { revalidatePath } from "next/cache";
 import {
   TAG_COLORS,
-  areStatusesUncontacted,
+  defaultNextActionForStatus,
+  isValidContactChannel,
+  isValidLeadSource,
+  isValidNextAction,
   isValidStatus,
   isValidWebsiteStatus,
-  normalizeLeadStatuses,
+  normalizeLeadStatus,
+  type ContactChannelKey,
+  type NextActionKey,
+  type StatusKey,
 } from "@/lib/config";
 import { captureLeadChangeSet } from "@/lib/lead-history";
+import {
+  findDuplicateLead,
+  normalizeInstagramUsername,
+  normalizePhoneE164,
+  normalizeWebsiteDomain,
+} from "@/lib/lead-identifiers";
 import { resolveMapsCoordinates } from "@/lib/maps";
 import { isGoogleMapsShortUrl } from "@/lib/parse";
-import { getLeadWithTags } from "@/lib/queries";
+import { getLeadActivities, getLeadWithTags } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
 import type {
   BulkLeadUpdate,
+  DuplicateWarning,
   GeocodeResult,
+  LeadActivity,
   LeadChangeSet,
   LeadInput,
   LeadWithTags,
   Tag,
 } from "@/lib/types";
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function clean(value: string | null | undefined): string | null {
   const normalized = value?.trim();
@@ -50,22 +60,29 @@ function websiteStatusMigrationError() {
   } as const;
 }
 
-function isMissingStatusesColumn(error: unknown): boolean {
+function isMissingCrmColumns(error: unknown): boolean {
+  const message =
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+      ? error.message
+      : "";
   return Boolean(
     error &&
       typeof error === "object" &&
       "code" in error &&
       (error.code === "42703" || error.code === "PGRST204") &&
-      "message" in error &&
-      typeof error.message === "string" &&
-      error.message.includes("statuses")
+      ["next_action", "contacted_at", "source"].some((column) =>
+        message.includes(column)
+      )
   );
 }
 
-function statusesMigrationError() {
+function crmMigrationError() {
   return {
     error:
-      "Falta aplicar la migración 20260822010000_add_multiple_lead_statuses.sql en Supabase.",
+      "Falta aplicar la migración 20260824010000_action_oriented_crm.sql en Supabase.",
   } as const;
 }
 
@@ -160,39 +177,63 @@ export async function restoreLeadChangeSet(
 
 export async function saveLead(
   input: LeadInput
-): Promise<LeadWithTags | { error: string }> {
+): Promise<
+  LeadWithTags | { error: string } | { duplicate: DuplicateWarning }
+> {
   const auth = await getAuthenticatedClient();
   if (!auth.ok) return { error: auth.error };
 
   const name = input.name?.trim();
   if (!name) return { error: "El nombre del negocio es obligatorio." };
-  if (
-    input.statuses.length === 0 ||
-    input.statuses.some((status) => !isValidStatus(status))
-  ) {
-    return { error: "Selecciona al menos un estado válido." };
+  if (!isValidStatus(input.status)) return { error: "Estado no válido." };
+  if (!isValidNextAction(input.nextAction)) {
+    return { error: "Próxima acción no válida." };
   }
-  const statuses = normalizeLeadStatuses(input.statuses);
   if (!isValidWebsiteStatus(input.websiteStatus)) {
     return { error: "Estado de la web no válido." };
   }
+  if (input.contactChannel && !isValidContactChannel(input.contactChannel)) {
+    return { error: "Canal de contacto no válido." };
+  }
+  if (input.source && !isValidLeadSource(input.source)) {
+    return { error: "Fuente del lead no válida." };
+  }
+  if (input.contactedAt && Number.isNaN(Date.parse(input.contactedAt))) {
+    return { error: "Fecha de contacto no válida." };
+  }
+  if (input.nextActionAt && Number.isNaN(Date.parse(input.nextActionAt))) {
+    return { error: "Fecha de próxima acción no válida." };
+  }
 
-  let contactDate = areStatusesUncontacted(statuses)
-    ? null
-    : (clean(input.contactDate) ?? today());
+  const now = new Date().toISOString();
+  const contactedStages = new Set<StatusKey>([
+    "contactado",
+    "respondio",
+    "interesado",
+    "cliente",
+  ]);
+  const repliedStages = new Set<StatusKey>([
+    "respondio",
+    "interesado",
+    "cliente",
+  ]);
+  let currentLead: {
+    status: string;
+    contacted_at: string | null;
+    replied_at: string | null;
+    last_contact_at: string | null;
+    notes: string | null;
+  } | null = null;
 
-  if (input.id && statuses.includes("contactado")) {
-    const { data: currentLead, error: readError } = await auth.supabase
+  if (input.id) {
+    const { data, error } = await auth.supabase
       .from("leads")
-      .select("statuses")
+      .select("status, contacted_at, replied_at, last_contact_at, notes")
+      .eq("user_id", auth.userId)
       .eq("id", input.id)
       .maybeSingle();
-
-    if (readError || !currentLead) {
-      return { error: "No se encontró el lead." };
-    }
-
-    if (!currentLead.statuses?.includes("contactado")) contactDate = today();
+    if (error || !data) return { error: "No se encontró el lead." };
+    currentLead = data;
   }
 
   const address = clean(input.address);
@@ -206,23 +247,100 @@ export async function saveLead(
     }
   }
 
+  const instagram = normalizeInstagramUsername(input.instagram) || null;
+  const website = clean(input.website);
+  const phone = clean(input.phone);
+  const googlePlaceId = clean(input.googlePlaceId);
+
+  if (!input.id && !input.allowDuplicate) {
+    const { data: comparableRows, error } = await auth.supabase
+      .from("leads")
+      .select(
+        "id, name, instagram, website, phone, address, lat, lng, google_place_id, normalized_phone, normalized_instagram, website_domain"
+      )
+      .eq("user_id", auth.userId);
+    if (error) {
+      if (isMissingCrmColumns(error)) return crmMigrationError();
+      return { error: "No se pudieron comprobar posibles duplicados." };
+    }
+    const duplicate = findDuplicateLead(
+      {
+        name,
+        instagram,
+        website,
+        phone,
+        address,
+        lat,
+        lng,
+        googlePlaceId,
+      },
+      comparableRows.map((lead) => ({
+        id: lead.id,
+        name: lead.name,
+        instagram: lead.instagram,
+        website: lead.website,
+        phone: lead.phone,
+        address: lead.address,
+        lat: lead.lat,
+        lng: lead.lng,
+        googlePlaceId: lead.google_place_id,
+        normalizedPhone: lead.normalized_phone,
+        normalizedInstagram: lead.normalized_instagram,
+        websiteDomain: lead.website_domain,
+      }))
+    );
+    if (duplicate) return { duplicate };
+  }
+
+  let contactedAt = clean(input.contactedAt) ?? currentLead?.contacted_at ?? null;
+  let repliedAt = currentLead?.replied_at ?? null;
+  let lastContactAt = currentLead?.last_contact_at ?? null;
+  let lastOutboundAt: string | null | undefined;
+  let lastInboundAt: string | null | undefined;
+  if (contactedStages.has(input.status) && !contactedAt) {
+    contactedAt = now;
+    lastContactAt = now;
+    lastOutboundAt = now;
+  }
+  if (repliedStages.has(input.status) && !repliedAt) {
+    repliedAt = now;
+    lastContactAt = now;
+    lastInboundAt = now;
+  }
+  const nextAction = ["cliente", "descartado"].includes(input.status)
+    ? "sin_accion"
+    : input.nextAction;
+  const nextActionAt =
+    nextAction === "sin_accion" ? null : clean(input.nextActionAt);
+
   const values = {
     user_id: auth.userId,
     name,
-    instagram: clean(input.instagram)?.replace(/^@/, "") ?? null,
-    website: clean(input.website),
+    instagram,
+    website,
     website_status: input.websiteStatus,
-    phone: clean(input.phone),
+    phone,
     address,
     lat,
     lng,
     problem: clean(input.problem),
     notes: clean(input.notes),
-    status: statuses[0],
-    statuses,
-    contact_date: contactDate,
-    follow_up_date: clean(input.followUpDate),
-    updated_at: new Date().toISOString(),
+    status: input.status,
+    statuses: [input.status],
+    contacted_at: contactedAt,
+    replied_at: repliedAt,
+    last_contact_at: lastContactAt,
+    ...(lastOutboundAt !== undefined ? { last_outbound_at: lastOutboundAt } : {}),
+    ...(lastInboundAt !== undefined ? { last_inbound_at: lastInboundAt } : {}),
+    contact_channel: input.contactChannel ?? null,
+    next_action: nextAction,
+    next_action_at: nextActionAt,
+    source: input.source ?? "manual",
+    google_place_id: googlePlaceId,
+    normalized_phone: normalizePhoneE164(phone) || null,
+    normalized_instagram: instagram,
+    website_domain: normalizeWebsiteDomain(website) || null,
+    updated_at: now,
   };
 
   let id: number;
@@ -242,7 +360,7 @@ export async function saveLead(
       .maybeSingle();
 
     if (error || !data) {
-      if (isMissingStatusesColumn(error)) return statusesMigrationError();
+      if (isMissingCrmColumns(error)) return crmMigrationError();
       if (isMissingWebsiteStatusColumn(error)) {
         return websiteStatusMigrationError();
       }
@@ -250,6 +368,20 @@ export async function saveLead(
     }
 
     id = data.id;
+    if ((currentLead?.notes ?? null) !== (values.notes ?? null)) {
+      const { error: activityError } = await auth.supabase
+        .from("lead_activities")
+        .insert({
+          user_id: auth.userId,
+          lead_id: id,
+          type: "note_updated",
+          description: "Notas actualizadas",
+          origin: "manual",
+        });
+      if (activityError) {
+        return { error: "El lead se guardó, pero no se pudo registrar la actividad." };
+      }
+    }
     const { error: unlinkError } = await auth.supabase
       .from("lead_tags")
       .delete()
@@ -266,7 +398,7 @@ export async function saveLead(
       .single();
 
     if (error || !data) {
-      if (isMissingStatusesColumn(error)) return statusesMigrationError();
+      if (isMissingCrmColumns(error)) return crmMigrationError();
       if (isMissingWebsiteStatusColumn(error)) {
         return websiteStatusMigrationError();
       }
@@ -401,39 +533,46 @@ export async function deleteLeadsBulk(
   return { deleted: deletedLeads.length };
 }
 
-export async function setLeadStatuses(
+export async function setLeadStatus(
   id: number,
-  requestedStatuses: string[]
+  status: string
 ): Promise<{
   error?: string;
-  statuses?: ReturnType<typeof normalizeLeadStatuses>;
+  status?: StatusKey;
+  statuses?: StatusKey[];
   contactDate?: string | null;
+  contactedAt?: string | null;
+  repliedAt?: string | null;
+  lastContactAt?: string | null;
+  nextAction?: NextActionKey;
+  nextActionAt?: string | null;
 }> {
-  if (
-    requestedStatuses.length === 0 ||
-    requestedStatuses.some((status) => !isValidStatus(status))
-  ) {
-    return { error: "Selecciona al menos un estado válido." };
-  }
-  const statuses = normalizeLeadStatuses(requestedStatuses);
+  if (!isValidStatus(status)) return { error: "Estado no válido." };
 
   const auth = await getAuthenticatedClient();
   if (!auth.ok) return { error: auth.error };
 
   const { data: lead, error: readError } = await auth.supabase
     .from("leads")
-    .select("name, status, statuses, contact_date")
+    .select(
+      "name, status, contacted_at, replied_at, last_contact_at, next_action, next_action_at"
+    )
     .eq("user_id", auth.userId)
     .eq("id", id)
     .maybeSingle();
 
   if (readError || !lead) return { error: "No se encontró el lead." };
-  const previousStatuses = normalizeLeadStatuses(lead.statuses, lead.status);
-  if (
-    previousStatuses.length === statuses.length &&
-    previousStatuses.every((status, index) => status === statuses[index])
-  ) {
-    return { statuses, contactDate: lead.contact_date };
+  if (lead.status === status) {
+    return {
+      status,
+      statuses: [status],
+      contactDate: lead.contacted_at?.slice(0, 10) ?? null,
+      contactedAt: lead.contacted_at,
+      repliedAt: lead.replied_at,
+      lastContactAt: lead.last_contact_at,
+      nextAction: lead.next_action as NextActionKey,
+      nextActionAt: lead.next_action_at,
+    };
   }
 
   const history = await captureLeadChangeSet(
@@ -443,29 +582,300 @@ export async function setLeadStatuses(
   );
   if ("error" in history) return history;
 
-  const contactDate = areStatusesUncontacted(statuses)
-    ? null
-    : statuses.includes("contactado") &&
-        !previousStatuses.includes("contactado")
-      ? today()
-      : (lead.contact_date ?? today());
+  const now = new Date().toISOString();
+  const contactedStages: StatusKey[] = [
+    "contactado",
+    "respondio",
+    "interesado",
+    "cliente",
+  ];
+  const repliedStages: StatusKey[] = ["respondio", "interesado", "cliente"];
+  const contactedAt =
+    lead.contacted_at ?? (contactedStages.includes(status) ? now : null);
+  const repliedAt = lead.replied_at ?? (repliedStages.includes(status) ? now : null);
+  const terminal = status === "cliente" || status === "descartado";
+  const previousStatus = normalizeLeadStatus(lead.status);
+  const currentAction = isValidNextAction(lead.next_action)
+    ? lead.next_action
+    : defaultNextActionForStatus(previousStatus);
+  const shouldAdvanceDefault =
+    currentAction === "sin_accion" ||
+    currentAction === defaultNextActionForStatus(previousStatus);
+  const nextAction = terminal
+    ? "sin_accion"
+    : shouldAdvanceDefault
+      ? defaultNextActionForStatus(status)
+      : currentAction;
+  const nextActionAt =
+    terminal || nextAction !== currentAction ? null : lead.next_action_at;
   const { error } = await auth.supabase
     .from("leads")
     .update({
-      status: statuses[0],
-      statuses,
-      contact_date: contactDate,
-      updated_at: new Date().toISOString(),
+      status,
+      statuses: [status],
+      contacted_at: contactedAt,
+      replied_at: repliedAt,
+      last_contact_at:
+        repliedAt !== lead.replied_at || contactedAt !== lead.contacted_at
+          ? now
+          : lead.last_contact_at,
+      ...(contactedAt !== lead.contacted_at ? { last_outbound_at: now } : {}),
+      ...(repliedAt !== lead.replied_at ? { last_inbound_at: now } : {}),
+      next_action: nextAction,
+      next_action_at: nextActionAt,
+      updated_at: now,
     })
     .eq("id", id);
 
   if (error) {
-    if (isMissingStatusesColumn(error)) return statusesMigrationError();
-    return { error: "No se pudieron cambiar los estados." };
+    if (isMissingCrmColumns(error)) return crmMigrationError();
+    return { error: "No se pudo cambiar el estado." };
   }
 
   revalidateCrm();
-  return { statuses, contactDate };
+  return {
+    status,
+    statuses: [status],
+    contactDate: contactedAt?.slice(0, 10) ?? null,
+    contactedAt,
+    repliedAt,
+    lastContactAt:
+      repliedAt !== lead.replied_at || contactedAt !== lead.contacted_at
+        ? now
+        : lead.last_contact_at,
+    nextAction,
+    nextActionAt,
+  };
+}
+
+/** Temporary compatibility wrapper for clients deployed before the CRM migration. */
+export async function setLeadStatuses(id: number, statuses: string[]) {
+  return setLeadStatus(id, statuses[0] ?? "por_contactar");
+}
+
+export async function setLeadNextAction(
+  id: number,
+  action: string,
+  actionAt: string | null
+): Promise<{
+  error?: string;
+  nextAction?: NextActionKey;
+  nextActionAt?: string | null;
+}> {
+  if (!Number.isSafeInteger(id) || id <= 0) return { error: "Lead no válido." };
+  if (!isValidNextAction(action)) return { error: "Próxima acción no válida." };
+  if (actionAt && Number.isNaN(Date.parse(actionAt))) {
+    return { error: "Fecha de próxima acción no válida." };
+  }
+
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+  const { data: lead, error: readError } = await auth.supabase
+    .from("leads")
+    .select("name, next_action, next_action_at")
+    .eq("user_id", auth.userId)
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !lead) return { error: "No se encontró el lead." };
+
+  const nextActionAt = action === "sin_accion" ? null : actionAt;
+  if (lead.next_action === action && lead.next_action_at === nextActionAt) {
+    return { nextAction: action, nextActionAt };
+  }
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    [id],
+    `Cambio de próxima acción de «${lead.name}»`
+  );
+  if ("error" in history) return history;
+
+  const { error } = await auth.supabase
+    .from("leads")
+    .update({
+      next_action: action,
+      next_action_at: nextActionAt,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", auth.userId)
+    .eq("id", id);
+  if (error) {
+    if (isMissingCrmColumns(error)) return crmMigrationError();
+    return { error: "No se pudo cambiar la próxima acción." };
+  }
+
+  revalidateCrm();
+  return { nextAction: action, nextActionAt };
+}
+
+export async function addLeadNote(
+  id: number,
+  text: string
+): Promise<{ notes: string; activity: LeadActivity } | { error: string }> {
+  const note = text.trim();
+  if (!note) return { error: "Escribe una nota." };
+  if (note.length > 2_000) return { error: "La nota no puede superar 2.000 caracteres." };
+
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+  const { data: lead, error: readError } = await auth.supabase
+    .from("leads")
+    .select("name, notes")
+    .eq("user_id", auth.userId)
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !lead) return { error: "No se encontró el lead." };
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    [id],
+    `Nota añadida a «${lead.name}»`
+  );
+  if ("error" in history) return history;
+
+  const notes = [lead.notes?.trim(), note].filter(Boolean).join("\n\n");
+  const occurredAt = new Date().toISOString();
+  const { error: updateError } = await auth.supabase
+    .from("leads")
+    .update({ notes, updated_at: occurredAt })
+    .eq("user_id", auth.userId)
+    .eq("id", id);
+  if (updateError) return { error: "No se pudo guardar la nota." };
+
+  const { data: activity, error: activityError } = await auth.supabase
+    .from("lead_activities")
+    .insert({
+      user_id: auth.userId,
+      lead_id: id,
+      type: "note_added",
+      occurred_at: occurredAt,
+      description: note,
+      origin: "manual",
+    })
+    .select("id, lead_id, type, occurred_at, metadata, description, origin, template_id")
+    .single();
+  if (activityError || !activity) {
+    return { error: "La nota se guardó, pero no se pudo registrar la actividad." };
+  }
+
+  revalidateCrm();
+  return {
+    notes,
+    activity: {
+      id: activity.id,
+      leadId: activity.lead_id,
+      type: activity.type,
+      occurredAt: activity.occurred_at,
+      metadata: (activity.metadata ?? {}) as Record<string, unknown>,
+      description: activity.description,
+      origin: activity.origin,
+      templateId: activity.template_id,
+    },
+  };
+}
+
+export async function loadLeadActivities(
+  id: number
+): Promise<LeadActivity[] | { error: string }> {
+  if (!Number.isSafeInteger(id) || id <= 0) return { error: "Lead no válido." };
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+  try {
+    return await getLeadActivities(id, 200);
+  } catch {
+    return { error: "No se pudo cargar toda la actividad." };
+  }
+}
+
+export async function markLeadContacted(
+  id: number,
+  channel: ContactChannelKey
+): Promise<LeadWithTags | { error: string }> {
+  if (!isValidContactChannel(channel)) return { error: "Canal no válido." };
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+  const { data: lead, error: readError } = await auth.supabase
+    .from("leads")
+    .select("name, status, next_action")
+    .eq("user_id", auth.userId)
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !lead) return { error: "No se encontró el lead." };
+
+  const history = await captureLeadChangeSet(
+    auth.supabase,
+    [id],
+    `Contacto registrado con «${lead.name}»`
+  );
+  if ("error" in history) return history;
+
+  const now = new Date().toISOString();
+  const status = lead.status === "por_contactar" ? "contactado" : lead.status;
+  const nextAction =
+    lead.next_action === "contactar" ? "esperar_respuesta" : lead.next_action;
+  const { error } = await auth.supabase
+    .from("leads")
+    .update({
+      status,
+      statuses: [status],
+      contacted_at: now,
+      last_contact_at: now,
+      last_outbound_at: now,
+      contact_channel: channel,
+      next_action: nextAction,
+      updated_at: now,
+    })
+    .eq("user_id", auth.userId)
+    .eq("id", id);
+  if (error) return { error: "No se pudo registrar el contacto." };
+
+  revalidateCrm();
+  const saved = await getLeadWithTags(id);
+  return saved ?? { error: "No se pudo actualizar la ficha del lead." };
+}
+
+export async function trackTemplateUsage(input: {
+  leadId: number;
+  templateId: number;
+  channel: ContactChannelKey;
+}): Promise<{ tracked: true } | { error: string }> {
+  if (
+    !Number.isSafeInteger(input.leadId) ||
+    input.leadId <= 0 ||
+    !Number.isSafeInteger(input.templateId) ||
+    input.templateId <= 0 ||
+    !isValidContactChannel(input.channel)
+  ) {
+    return { error: "Uso de plantilla no válido." };
+  }
+  const auth = await getAuthenticatedClient();
+  if (!auth.ok) return { error: auth.error };
+
+  const [{ data: lead }, { data: template }] = await Promise.all([
+    auth.supabase
+      .from("leads")
+      .select("id")
+      .eq("user_id", auth.userId)
+      .eq("id", input.leadId)
+      .maybeSingle(),
+    auth.supabase
+      .from("message_templates")
+      .select("id, name")
+      .eq("user_id", auth.userId)
+      .eq("id", input.templateId)
+      .maybeSingle(),
+  ]);
+  if (!lead || !template) return { error: "Lead o plantilla no disponibles." };
+
+  const { error } = await auth.supabase.from("lead_activities").insert({
+    user_id: auth.userId,
+    lead_id: input.leadId,
+    type: "template_used",
+    metadata: { channel: input.channel, template_name: template.name },
+    origin: "manual",
+    template_id: template.id,
+  });
+  return error ? { error: "No se pudo registrar el uso de la plantilla." } : { tracked: true };
 }
 
 export async function setLeadWebsiteStatus(
@@ -531,24 +941,19 @@ export async function updateLeadsBulk(
     return { error: "Selecciona un máximo de 1000 leads cada vez." };
   }
 
-  const hasStatuses = input.statuses !== undefined;
+  const hasStatus = input.status !== undefined;
   const hasWebsiteStatus = input.websiteStatus !== undefined;
   const hasTags = input.tags !== undefined;
-  const hasFollowUpDate = Object.hasOwn(input, "followUpDate");
+  const hasNextAction = input.nextAction !== undefined;
+  const hasNextActionAt = Object.hasOwn(input, "nextActionAt");
 
-  if (!hasStatuses && !hasWebsiteStatus && !hasTags && !hasFollowUpDate) {
+  if (!hasStatus && !hasWebsiteStatus && !hasTags && !hasNextAction && !hasNextActionAt) {
     return { error: "Selecciona al menos un cambio para aplicar." };
   }
-  if (
-    hasStatuses &&
-    (input.statuses!.length === 0 ||
-      input.statuses!.some((status) => !isValidStatus(status)))
-  ) {
-    return { error: "Selecciona al menos un estado válido." };
+  if (hasStatus && !isValidStatus(input.status!)) return { error: "Estado no válido." };
+  if (hasNextAction && !isValidNextAction(input.nextAction!)) {
+    return { error: "Próxima acción no válida." };
   }
-  const statuses = hasStatuses
-    ? normalizeLeadStatuses(input.statuses)
-    : undefined;
   if (
     hasWebsiteStatus &&
     !isValidWebsiteStatus(input.websiteStatus!)
@@ -558,7 +963,7 @@ export async function updateLeadsBulk(
 
   const { data: ownedLeads, error: leadError } = await auth.supabase
     .from("leads")
-    .select("id, status, statuses, contact_date")
+    .select("id, status, contacted_at, replied_at")
     .eq("user_id", auth.userId)
     .in("id", leadIds);
 
@@ -607,20 +1012,29 @@ export async function updateLeadsBulk(
     status?: string;
     statuses?: string[];
     website_status?: string;
-    contact_date?: string | null;
-    follow_up_date?: string | null;
+    next_action?: string;
+    next_action_at?: string | null;
     updated_at: string;
   } = { updated_at: new Date().toISOString() };
 
-  if (statuses) {
-    leadValues.status = statuses[0];
-    leadValues.statuses = statuses;
-    if (areStatusesUncontacted(statuses)) leadValues.contact_date = null;
+  if (input.status) {
+    leadValues.status = input.status;
+    leadValues.statuses = [input.status];
+    if (input.status === "cliente" || input.status === "descartado") {
+      leadValues.next_action = "sin_accion";
+      leadValues.next_action_at = null;
+    }
   }
   if (hasWebsiteStatus) leadValues.website_status = input.websiteStatus;
-  if (hasFollowUpDate) leadValues.follow_up_date = clean(input.followUpDate);
+  if (hasNextAction && leadValues.next_action !== "sin_accion") {
+    leadValues.next_action = input.nextAction;
+  }
+  if (hasNextActionAt && leadValues.next_action !== "sin_accion") {
+    leadValues.next_action_at = clean(input.nextActionAt);
+  }
+  if (leadValues.next_action === "sin_accion") leadValues.next_action_at = null;
 
-  if (hasStatuses || hasWebsiteStatus || hasFollowUpDate) {
+  if (hasStatus || hasWebsiteStatus || hasNextAction || hasNextActionAt) {
     const { error } = await auth.supabase
       .from("leads")
       .update(leadValues)
@@ -628,37 +1042,47 @@ export async function updateLeadsBulk(
       .in("id", leadIds);
 
     if (error) {
-      if (isMissingStatusesColumn(error)) return statusesMigrationError();
+      if (isMissingCrmColumns(error)) return crmMigrationError();
       if (isMissingWebsiteStatusColumn(error)) {
         return websiteStatusMigrationError();
       }
       return { error: "No se pudieron actualizar los leads." };
     }
 
-    if (statuses && !areStatusesUncontacted(statuses)) {
-      const needsContactDate = ownedLeads
-        .filter((lead) =>
-          statuses.includes("contactado")
-            ? !normalizeLeadStatuses(lead.statuses, lead.status).includes(
-                "contactado"
-              )
-            : !lead.contact_date
-        )
-        .map((lead) => lead.id);
-
-      if (needsContactDate.length > 0) {
-        const { error: contactDateError } = await auth.supabase
+    if (input.status) {
+      const contactedStages: StatusKey[] = [
+        "contactado",
+        "respondio",
+        "interesado",
+        "cliente",
+      ];
+      const repliedStages: StatusKey[] = ["respondio", "interesado", "cliente"];
+      const now = new Date().toISOString();
+      const needsContact = contactedStages.includes(input.status)
+        ? ownedLeads.filter((lead) => !lead.contacted_at).map((lead) => lead.id)
+        : [];
+      if (needsContact.length > 0) {
+        const { error: contactError } = await auth.supabase
           .from("leads")
-          .update({ contact_date: today() })
+          .update({
+            contacted_at: now,
+            last_contact_at: now,
+            last_outbound_at: now,
+          })
           .eq("user_id", auth.userId)
-          .in("id", needsContactDate);
-
-        if (contactDateError) {
-          return {
-            error:
-              "Se cambió el estado, pero no se pudo actualizar la fecha de contacto.",
-          };
-        }
+          .in("id", needsContact);
+        if (contactError) return { error: "Se cambió el estado, pero no la fecha de contacto." };
+      }
+      const needsReply = repliedStages.includes(input.status)
+        ? ownedLeads.filter((lead) => !lead.replied_at).map((lead) => lead.id)
+        : [];
+      if (needsReply.length > 0) {
+        const { error: replyError } = await auth.supabase
+          .from("leads")
+          .update({ replied_at: now, last_contact_at: now, last_inbound_at: now })
+          .eq("user_id", auth.userId)
+          .in("id", needsReply);
+        if (replyError) return { error: "Se cambió el estado, pero no la fecha de respuesta." };
       }
     }
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { toast } from "sonner";
 import { showContactDateNoticeToast } from "@/components/contact-date-notice";
 import {
@@ -9,8 +9,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { setLeadStatuses } from "@/lib/actions";
+import { setLeadStatus } from "@/lib/actions";
 import {
+  normalizeLeadStatus,
   normalizeLeadStatuses,
   STATUSES,
   STATUS_MAP,
@@ -86,29 +87,17 @@ export function StatusBadges({
 }
 
 export function StatusPicker({
-  statuses,
+  status,
   onChange,
   disabled,
   className,
 }: {
-  statuses: readonly string[];
-  onChange: (statuses: StatusKey[]) => void;
+  status: string;
+  onChange: (status: StatusKey) => void;
   disabled?: boolean;
   className?: string;
 }) {
-  const selected = normalizeLeadStatuses(statuses);
-
-  const toggle = (status: StatusKey) => {
-    if (selected.includes(status)) {
-      if (selected.length === 1) {
-        toast.warning("Cada lead debe tener al menos un estado.");
-        return;
-      }
-      onChange(selected.filter((item) => item !== status));
-      return;
-    }
-    onChange([...selected, status]);
-  };
+  const selected = normalizeLeadStatus(status);
 
   return (
     <Popover>
@@ -121,14 +110,15 @@ export function StatusPicker({
         )}
         onClick={(event) => event.stopPropagation()}
       >
-        <StatusBadges statuses={selected} />
+        <StatusBadge status={selected} />
+        <ChevronDownIcon className="size-3 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 gap-1 p-1.5">
         <p className="px-1.5 py-1 text-xs font-medium text-muted-foreground">
-          Puedes seleccionar varios estados
+          Estado comercial
         </p>
         {STATUSES.map((status) => {
-          const checked = selected.includes(status.value);
+          const checked = selected === status.value;
           return (
             <button
               key={status.value}
@@ -138,7 +128,7 @@ export function StatusPicker({
               className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent"
               onClick={(event) => {
                 event.stopPropagation();
-                toggle(status.value);
+                onChange(status.value);
               }}
             >
               <StatusDot status={status.value} />
@@ -157,36 +147,48 @@ export function StatusPicker({
 /** Selector de estados que guarda el cambio inmediatamente. */
 export function StatusSelect({
   leadId,
-  statuses,
-  onStatusesChange,
+  status,
+  onStatusChange,
 }: {
   leadId: number;
-  statuses: readonly string[];
-  onStatusesChange?: (
-    statuses: StatusKey[],
-    contactDate: string | null
-  ) => void;
+  status: string;
+  onStatusChange?: (result: {
+    status: StatusKey;
+    contactedAt: string | null;
+    repliedAt: string | null;
+    lastContactAt: string | null;
+    nextAction: import("@/lib/config").NextActionKey;
+    nextActionAt: string | null;
+  }) => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const selected = normalizeLeadStatuses(statuses);
+  const selected = normalizeLeadStatus(status);
 
   return (
     <StatusPicker
-      statuses={selected}
+      status={selected}
       disabled={pending}
       className={cn("border-0 p-0 shadow-none", pending && "opacity-50")}
-      onChange={(nextStatuses) => {
+      onChange={(nextStatus) => {
         startTransition(async () => {
-          const result = await setLeadStatuses(leadId, nextStatuses);
-          if (result.error || !result.statuses) {
-            toast.error(result.error ?? "No se pudieron cambiar los estados.");
+          const result = await setLeadStatus(leadId, nextStatus);
+          if (
+            result.error ||
+            !result.status ||
+            !result.nextAction
+          ) {
+            toast.error(result.error ?? "No se pudo cambiar el estado.");
             return;
           }
-          onStatusesChange?.(result.statuses, result.contactDate ?? null);
-          if (
-            result.statuses.includes("contactado") &&
-            !selected.includes("contactado")
-          ) {
+          onStatusChange?.({
+            status: result.status,
+            contactedAt: result.contactedAt ?? null,
+            repliedAt: result.repliedAt ?? null,
+            lastContactAt: result.lastContactAt ?? null,
+            nextAction: result.nextAction,
+            nextActionAt: result.nextActionAt ?? null,
+          });
+          if (result.status === "contactado" && selected === "por_contactar") {
             showContactDateNoticeToast();
           }
         });

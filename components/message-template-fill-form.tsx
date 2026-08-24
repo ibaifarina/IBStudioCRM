@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
-import { CheckCheckIcon, CheckIcon, CopyIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,23 +35,20 @@ async function copyText(value: string) {
   if (!copied) throw new Error("copy_failed");
 }
 
-function formatClock(date: Date) {
-  return new Intl.DateTimeFormat("es", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-const subscribeToClock = () => () => {};
-const getClockSnapshot = () => formatClock(new Date());
-const getServerClockSnapshot = () => "";
-
 export function MessageTemplateFillForm({
   content,
   initialValues = EMPTY_VALUES,
+  onCopied,
+  secondaryAction,
 }: {
   content: string;
   initialValues?: Record<string, string>;
+  onCopied?: (output: string) => void | Promise<void>;
+  secondaryAction?: {
+    label: string;
+    onClick: (output: string) => void;
+    disabled?: boolean;
+  };
 }) {
   const variables = useMemo(() => extractTemplateVariables(content), [content]);
   const [values, setValues] = useState<Record<string, string>>(initialValues);
@@ -69,11 +66,6 @@ export function MessageTemplateFillForm({
   const filledCount = variables.length - missingVariables.length;
   const [lastCopiedOutput, setLastCopiedOutput] = useState("");
   const copied = Boolean(output) && lastCopiedOutput === output;
-  const clock = useSyncExternalStore(
-    subscribeToClock,
-    getClockSnapshot,
-    getServerClockSnapshot
-  );
 
   return (
     <div className="space-y-7">
@@ -169,10 +161,6 @@ export function MessageTemplateFillForm({
                 </span>
               )}
             </div>
-            <div className="mt-1.5 flex items-center justify-end gap-1 text-[11px] leading-none text-muted-foreground">
-              <span suppressHydrationWarning>{clock}</span>
-              <CheckCheckIcon className="size-3.5 text-sky-500 dark:text-sky-400" />
-            </div>
           </div>
         </div>
 
@@ -184,23 +172,41 @@ export function MessageTemplateFillForm({
             para copiar.
           </p>
         )}
-        <Button
-          size="lg"
-          className="mt-4 w-full sm:w-auto sm:min-w-44"
-          disabled={!content.trim() || missingVariables.length > 0}
-          onClick={async () => {
-            try {
-              await copyText(output);
-              setLastCopiedOutput(output);
-              toast.success("Mensaje copiado");
-            } catch {
-              toast.error("No se pudo copiar el mensaje.");
-            }
-          }}
-        >
-          {copied ? <CheckIcon /> : <CopyIcon />}
-          {copied ? "Mensaje copiado" : "Copiar mensaje"}
-        </Button>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <Button
+            size="lg"
+            className="w-full sm:w-auto sm:min-w-44"
+            disabled={!content.trim() || missingVariables.length > 0}
+            onClick={async () => {
+              try {
+                await copyText(output);
+                setLastCopiedOutput(output);
+                await onCopied?.(output);
+                toast.success("Mensaje copiado");
+              } catch {
+                toast.error("No se pudo copiar el mensaje.");
+              }
+            }}
+          >
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? "Mensaje copiado" : "Copiar mensaje"}
+          </Button>
+          {secondaryAction && (
+            <Button
+              size="lg"
+              variant="outline"
+              disabled={
+                secondaryAction.disabled ||
+                !content.trim() ||
+                missingVariables.length > 0
+              }
+              onClick={() => secondaryAction.onClick(output)}
+            >
+              <ExternalLinkIcon />
+              {secondaryAction.label}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

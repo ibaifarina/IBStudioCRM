@@ -1,10 +1,24 @@
 import { cache } from "react";
-import { normalizeLeadStatuses, type LeadSortKey } from "@/lib/config";
+import {
+  defaultNextActionForStatus,
+  isValidContactChannel,
+  isValidLeadSource,
+  isValidNextAction,
+  normalizeLeadStatus,
+  type LeadSortKey,
+  type NextActionKey,
+} from "@/lib/config";
+import {
+  dateInputToStartOfDayTimestamp,
+  dateInputToTimestamp,
+  todayISO,
+} from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
 import type {
   LeadCursor,
   LeadFilters,
   LeadImportComparable,
+  LeadActivity,
   LeadOption,
   LeadPage,
   LeadWithTags,
@@ -75,16 +89,42 @@ type LeadRow = {
   statuses?: string[] | null;
   contact_date: string | null;
   follow_up_date: string | null;
+  contacted_at?: string | null;
+  replied_at?: string | null;
+  last_contact_at?: string | null;
+  last_outbound_at?: string | null;
+  last_inbound_at?: string | null;
+  contact_channel?: string | null;
+  next_action?: string | null;
+  next_action_at?: string | null;
+  source?: string | null;
+  google_place_id?: string | null;
   created_at: string;
   updated_at: string;
   lead_tags: Array<{ tags: TagRow | TagRow[] | null }>;
 };
 
+function legacyNextAction(lead: LeadRow, status: LeadWithTags["status"]): NextActionKey {
+  if (lead.status === "revisar_mas_tarde" || lead.statuses?.includes("revisar_mas_tarde")) {
+    return "revisar_mas_tarde";
+  }
+  if (lead.status === "seguimiento" || lead.statuses?.includes("seguimiento")) {
+    return "hacer_follow_up";
+  }
+  if (status === "contactado" && lead.follow_up_date) return "hacer_follow_up";
+  return defaultNextActionForStatus(status);
+}
+
 function mapLeadRow(
   lead: LeadRow,
   hasWebsiteStatusColumn = true
 ): LeadWithTags {
-  const statuses = normalizeLeadStatuses(lead.statuses, lead.status);
+  const status = normalizeLeadStatus(lead.status, lead.statuses);
+  const contactedAt = lead.contacted_at ?? dateInputToTimestamp(lead.contact_date);
+  const nextAction =
+    lead.next_action && isValidNextAction(lead.next_action)
+      ? lead.next_action
+      : legacyNextAction(lead, status);
   return {
     id: lead.id,
     name: lead.name,
@@ -102,12 +142,29 @@ function mapLeadRow(
     lng: lead.lng,
     problem: lead.problem,
     notes: lead.notes,
-    status: statuses[0],
-    statuses,
+    status,
+    statuses: [status],
+    contactedAt,
+    repliedAt: lead.replied_at ?? null,
+    lastContactAt: lead.last_contact_at ?? contactedAt,
+    lastOutboundAt: lead.last_outbound_at ?? contactedAt,
+    lastInboundAt: lead.last_inbound_at ?? null,
+    contactChannel:
+      lead.contact_channel && isValidContactChannel(lead.contact_channel)
+        ? lead.contact_channel
+        : null,
+    nextAction,
+    nextActionAt:
+      lead.next_action_at ?? dateInputToTimestamp(lead.follow_up_date),
+    source:
+      lead.source && isValidLeadSource(lead.source) ? lead.source : "manual",
+    googlePlaceId: lead.google_place_id ?? null,
     contactDate: lead.contact_date,
     followUpDate: lead.follow_up_date,
     createdAt: lead.created_at,
     updatedAt: lead.updated_at,
+    recentActivities: [],
+    hasMoreActivity: false,
     tags: lead.lead_tags
       .flatMap((link) =>
         Array.isArray(link.tags) ? link.tags : link.tags ? [link.tags] : []
@@ -116,9 +173,78 @@ function mapLeadRow(
   };
 }
 
+type ActivityRow = {
+  id: number;
+  lead_id: number;
+  type: string;
+  occurred_at: string;
+  metadata: unknown;
+  description: string | null;
+  origin: string | null;
+  template_id: number | null;
+};
+
+function mapActivity(row: ActivityRow): LeadActivity {
+  return {
+    id: row.id,
+    leadId: row.lead_id,
+    type: row.type,
+    occurredAt: row.occurred_at,
+    metadata:
+      row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : {},
+    description: row.description,
+    origin: row.origin,
+    templateId: row.template_id,
+  };
+}
+
+async function getRecentActivitiesByLead(
+  leadIds: number[],
+  visibleLimit = 5
+): Promise<Map<number, LeadActivity[]>> {
+  const result = new Map<number, LeadActivity[]>();
+  if (leadIds.length === 0) return result;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("lead_activities")
+    .select("id, lead_id, type, occurred_at, metadata, description, origin, template_id")
+    .in("lead_id", leadIds)
+    .order("occurred_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(Math.min(2_000, leadIds.length * (visibleLimit + 1) * 3));
+
+  if (error?.code === "PGRST205" || error?.code === "42P01") return result;
+  if (error) throw new Error("No se pudo cargar la actividad de los leads.", { cause: error });
+
+  for (const row of (data ?? []) as ActivityRow[]) {
+    const current = result.get(row.lead_id) ?? [];
+    if (current.length < visibleLimit + 1) current.push(mapActivity(row));
+    result.set(row.lead_id, current);
+  }
+  return result;
+}
+
+function attachActivities(
+  leads: LeadWithTags[],
+  activities: Map<number, LeadActivity[]>,
+  visibleLimit = 5
+) {
+  return leads.map((lead) => {
+    const all = activities.get(lead.id) ?? [];
+    return {
+      ...lead,
+      recentActivities: all.slice(0, visibleLimit),
+      hasMoreActivity: all.length > visibleLimit,
+    };
+  });
+}
+
 export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
   const supabase = await createClient();
-  const result = await supabase
+  const initialResult = await supabase
     .from("leads")
     .select(
       `
@@ -137,90 +263,79 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
         statuses,
         contact_date,
         follow_up_date,
+        contacted_at,
+        replied_at,
+        last_contact_at,
+        last_outbound_at,
+        last_inbound_at,
+        contact_channel,
+        next_action,
+        next_action_at,
+        source,
+        google_place_id,
         created_at,
         updated_at,
         lead_tags ( tags ( id, name, color ) )
       `
     )
     .order("updated_at", { ascending: false });
-  let data: unknown = result.data;
-  let error = result.error;
-
-  let hasWebsiteStatusColumn = true;
-  if (
-    error?.code === "42703" &&
-    error.message.includes("statuses")
-  ) {
-    const fallback = await supabase
+  let data: unknown = initialResult.data;
+  let error = initialResult.error;
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    const legacyResult = await supabase
       .from("leads")
       .select(
         `
-          id,
-          name,
-          instagram,
-          website,
-          website_status,
-          phone,
-          address,
-          lat,
-          lng,
-          problem,
-          notes,
-          status,
-          contact_date,
-          follow_up_date,
-          created_at,
-          updated_at,
+          id, name, instagram, website, website_status, phone, address,
+          lat, lng, problem, notes, status, statuses, contact_date,
+          follow_up_date, created_at, updated_at,
           lead_tags ( tags ( id, name, color ) )
         `
       )
       .order("updated_at", { ascending: false });
-    data = fallback.data;
-    error = fallback.error;
-  }
-  if (
-    error?.code === "42703" &&
-    error.message.includes("website_status")
-  ) {
-    hasWebsiteStatusColumn = false;
-    const fallback = await supabase
-      .from("leads")
-      .select(
-        `
-          id,
-          name,
-          instagram,
-          website,
-          phone,
-          address,
-          lat,
-          lng,
-          problem,
-          notes,
-          status,
-          statuses,
-          contact_date,
-          follow_up_date,
-          created_at,
-          updated_at,
-          lead_tags ( tags ( id, name, color ) )
-        `
-      )
-      .order("updated_at", { ascending: false });
-    data = fallback.data;
-    error = fallback.error;
+    data = legacyResult.data;
+    error = legacyResult.error;
   }
 
   if (error) {
     throw new Error("No se pudieron cargar los leads.", { cause: error });
   }
 
-  return (data as unknown as LeadRow[]).map((lead) =>
-    mapLeadRow(lead, hasWebsiteStatusColumn)
-  );
+  return (data as LeadRow[]).map((lead) => mapLeadRow(lead));
 });
 
 const LEAD_PAGE_COLUMNS = `
+  id,
+  name,
+  instagram,
+  website,
+  website_status,
+  phone,
+  address,
+  lat,
+  lng,
+  problem,
+  notes,
+  status,
+  statuses,
+  contact_date,
+  follow_up_date,
+  contacted_at,
+  replied_at,
+  last_contact_at,
+  last_outbound_at,
+  last_inbound_at,
+  contact_channel,
+  next_action,
+  next_action_at,
+  source,
+  google_place_id,
+  created_at,
+  updated_at,
+  lead_tags ( tags ( id, name, color ) )
+`;
+
+const LEAD_PAGE_LEGACY_COLUMNS = `
   id,
   name,
   instagram,
@@ -241,11 +356,6 @@ const LEAD_PAGE_COLUMNS = `
   lead_tags ( tags ( id, name, color ) )
 `;
 
-const LEAD_PAGE_COLUMNS_WITHOUT_STATUSES = LEAD_PAGE_COLUMNS.replace(
-  "  statuses,\n",
-  ""
-);
-
 function safeSearchTerm(value: string) {
   return value.trim().slice(0, 100).replace(/[,%_()"\\]/g, " ");
 }
@@ -253,8 +363,8 @@ function safeSearchTerm(value: string) {
 const LEAD_SORT_CONFIG: Record<
   LeadSortKey,
   {
-    column: "updated_at" | "created_at" | "follow_up_date" | "name";
-    cursorKey: "updatedAt" | "createdAt" | "followUpDate" | "name";
+    column: "updated_at" | "created_at" | "next_action_at" | "name";
+    cursorKey: "updatedAt" | "createdAt" | "nextActionAt" | "name";
     ascending: boolean;
   }
 > = {
@@ -274,13 +384,13 @@ const LEAD_SORT_CONFIG: Record<
     ascending: true,
   },
   follow_up_asc: {
-    column: "follow_up_date",
-    cursorKey: "followUpDate",
+    column: "next_action_at",
+    cursorKey: "nextActionAt",
     ascending: true,
   },
   follow_up_desc: {
-    column: "follow_up_date",
-    cursorKey: "followUpDate",
+    column: "next_action_at",
+    cursorKey: "nextActionAt",
     ascending: false,
   },
   name_asc: { column: "name", cursorKey: "name", ascending: true },
@@ -303,10 +413,10 @@ export async function getLeadsPage({
   const supabase = await createClient();
   const search = filters.search ? safeSearchTerm(filters.search) : "";
   const sortConfig = LEAD_SORT_CONFIG[sort];
-  const runQuery = (hasStatusesColumn: boolean) => {
-    const baseColumns = hasStatusesColumn
+  const runQuery = (hasCrmColumns: boolean) => {
+    const baseColumns = hasCrmColumns
       ? LEAD_PAGE_COLUMNS
-      : LEAD_PAGE_COLUMNS_WITHOUT_STATUSES;
+      : LEAD_PAGE_LEGACY_COLUMNS;
     const selectColumns = filters.tagId
       ? `${baseColumns}, filtered_lead_tags:lead_tags!inner(tag_id)`
       : baseColumns;
@@ -315,13 +425,26 @@ export async function getLeadsPage({
       .select(selectColumns, cursor ? undefined : { count: "exact" });
 
     if (filters.status) {
-      query = hasStatusesColumn
-        ? query.contains("statuses", [filters.status])
-        : query.eq("status", filters.status);
+      query = query.eq("status", filters.status);
     } else {
-      query = hasStatusesColumn
-        ? query.not("statuses", "cs", "{descartado}")
-        : query.neq("status", "descartado");
+      query = query.neq("status", "descartado");
+    }
+    if (filters.nextAction && hasCrmColumns) {
+      query = query.eq("next_action", filters.nextAction);
+    }
+    if (filters.actionTiming && hasCrmColumns) {
+      const today = todayISO();
+      const tomorrow = new Date(`${today}T12:00:00Z`);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      const todayStart = dateInputToStartOfDayTimestamp(today)!;
+      const tomorrowStart = dateInputToStartOfDayTimestamp(
+        tomorrow.toISOString().slice(0, 10)
+      )!;
+      if (filters.actionTiming === "overdue") {
+        query = query.lt("next_action_at", todayStart);
+      } else {
+        query = query.or(`next_action_at.is.null,next_action_at.lt.${tomorrowStart}`);
+      }
     }
     if (filters.websiteStatus) {
       query = query.eq("website_status", filters.websiteStatus);
@@ -345,15 +468,15 @@ export async function getLeadsPage({
       const comparison = sortConfig.ascending ? "gt" : "lt";
       const rawCursorValue = cursor[sortConfig.cursorKey];
 
-      if (sortConfig.column === "follow_up_date" && rawCursorValue == null) {
+      if (sortConfig.column === "next_action_at" && rawCursorValue == null) {
         query = query
-          .is("follow_up_date", null)
+          .is("next_action_at", null)
           [comparison]("id", cursor.id);
       } else {
         const cursorValue = postgrestFilterValue(rawCursorValue!);
         const nullDates =
-          sortConfig.column === "follow_up_date"
-            ? ",follow_up_date.is.null"
+          sortConfig.column === "next_action_at"
+            ? ",next_action_at.is.null"
             : "";
         query = query.or(
           `${sortConfig.column}.${comparison}.${cursorValue},and(${sortConfig.column}.eq.${cursorValue},id.${comparison}.${cursor.id})${nullDates}`
@@ -371,7 +494,13 @@ export async function getLeadsPage({
   };
 
   let { data, error, count } = await runQuery(true);
-  if (error?.code === "42703" && error.message.includes("statuses")) {
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    if (filters.nextAction || filters.actionTiming || sort.startsWith("follow_up")) {
+      throw new Error(
+        "Falta aplicar la migración del modelo de próximas acciones.",
+        { cause: error }
+      );
+    }
     ({ data, error, count } = await runQuery(false));
   }
 
@@ -384,8 +513,12 @@ export async function getLeadsPage({
   const leads = hasMore ? rows.slice(0, LEADS_PAGE_SIZE) : rows;
   const lastLead = leads.at(-1);
 
+  const activities = await getRecentActivitiesByLead(
+    leads.map((lead) => lead.id)
+  );
+
   return {
-    leads,
+    leads: attachActivities(leads, activities),
     total: cursor ? null : (count ?? 0),
     nextCursor:
       hasMore && lastLead
@@ -395,6 +528,7 @@ export async function getLeadsPage({
             createdAt: lastLead.createdAt,
             updatedAt: lastLead.updatedAt,
             followUpDate: lastLead.followUpDate,
+            nextActionAt: lastLead.nextActionAt,
           }
         : null,
   };
@@ -408,10 +542,10 @@ export async function getLeadWithTags(id: number): Promise<LeadWithTags | null> 
     .eq("id", id)
     .maybeSingle();
 
-  if (error?.code === "42703" && error.message.includes("statuses")) {
+  if (error?.code === "42703" || error?.code === "PGRST204") {
     ({ data, error } = await supabase
       .from("leads")
-      .select(LEAD_PAGE_COLUMNS_WITHOUT_STATUSES)
+      .select(LEAD_PAGE_LEGACY_COLUMNS)
       .eq("id", id)
       .maybeSingle());
   }
@@ -420,7 +554,28 @@ export async function getLeadWithTags(id: number): Promise<LeadWithTags | null> 
     throw new Error("No se pudo cargar el lead.", { cause: error });
   }
 
-  return data ? mapLeadRow(data as unknown as LeadRow) : null;
+  if (!data) return null;
+  const lead = mapLeadRow(data as unknown as LeadRow);
+  const activities = await getRecentActivitiesByLead([lead.id]);
+  return attachActivities([lead], activities)[0];
+}
+
+export async function getLeadActivities(
+  id: number,
+  limit = 100
+): Promise<LeadActivity[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("lead_activities")
+    .select("id, lead_id, type, occurred_at, metadata, description, origin, template_id")
+    .eq("lead_id", id)
+    .order("occurred_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 250));
+
+  if (error?.code === "PGRST205" || error?.code === "42P01") return [];
+  if (error) throw new Error("No se pudo cargar la actividad del lead.", { cause: error });
+  return ((data ?? []) as ActivityRow[]).map(mapActivity);
 }
 
 export async function getRecentLeadCreatedDates(days = 30): Promise<string[]> {
@@ -443,9 +598,17 @@ export async function getRecentLeadCreatedDates(days = 30): Promise<string[]> {
 
 export async function getLeadImportComparables(): Promise<LeadImportComparable[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("leads")
-    .select("name, instagram, website, phone, address, lat, lng");
+    .select(
+      "id, name, instagram, website, phone, address, lat, lng, google_place_id, normalized_phone, normalized_instagram, website_domain"
+    );
+
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    ({ data, error } = await supabase
+      .from("leads")
+      .select("id, name, instagram, website, phone, address, lat, lng"));
+  }
 
   if (error) {
     throw new Error("No se pudieron comprobar los leads duplicados.", {
@@ -453,7 +616,26 @@ export async function getLeadImportComparables(): Promise<LeadImportComparable[]
     });
   }
 
-  return data as LeadImportComparable[];
+  return (data ?? []).map((lead) => ({
+    id: lead.id,
+    name: lead.name,
+    instagram: lead.instagram,
+    website: lead.website,
+    phone: lead.phone,
+    address: lead.address,
+    lat: lead.lat,
+    lng: lead.lng,
+    googlePlaceId:
+      "google_place_id" in lead ? (lead.google_place_id ?? null) : null,
+    normalizedPhone:
+      "normalized_phone" in lead ? (lead.normalized_phone ?? null) : null,
+    normalizedInstagram:
+      "normalized_instagram" in lead
+        ? (lead.normalized_instagram ?? null)
+        : null,
+    websiteDomain:
+      "website_domain" in lead ? (lead.website_domain ?? null) : null,
+  }));
 }
 
 export const getLeadOptions = cache(async (): Promise<LeadOption[]> => {

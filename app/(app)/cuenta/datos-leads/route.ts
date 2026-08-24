@@ -1,7 +1,9 @@
 import { revalidatePath } from "next/cache";
 import {
-  areStatusesUncontacted,
   TAG_COLORS,
+  type ContactChannelKey,
+  type LeadSourceKey,
+  type NextActionKey,
   type StatusKey,
 } from "@/lib/config";
 import {
@@ -10,7 +12,9 @@ import {
   serializeLeadsCsv,
 } from "@/lib/leads-csv";
 import { captureLeadChangeSet } from "@/lib/lead-history";
+import { findDuplicateLead } from "@/lib/lead-identifiers";
 import { createClient } from "@/lib/supabase/server";
+import type { LeadImportComparable } from "@/lib/types";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const INSERT_BATCH_SIZE = 250;
@@ -33,6 +37,16 @@ type ExportRow = {
   statuses: StatusKey[];
   contact_date: string | null;
   follow_up_date: string | null;
+  contacted_at: string | null;
+  replied_at: string | null;
+  last_contact_at: string | null;
+  last_outbound_at: string | null;
+  last_inbound_at: string | null;
+  contact_channel: ContactChannelKey | null;
+  next_action: NextActionKey;
+  next_action_at: string | null;
+  source: LeadSourceKey;
+  google_place_id: string | null;
   created_at: string;
   updated_at: string;
   lead_tags: Array<{ tags: { name: string } | Array<{ name: string }> | null }>;
@@ -84,6 +98,16 @@ export async function GET() {
         statuses,
         contact_date,
         follow_up_date,
+        contacted_at,
+        replied_at,
+        last_contact_at,
+        last_outbound_at,
+        last_inbound_at,
+        contact_channel,
+        next_action,
+        next_action_at,
+        source,
+        google_place_id,
         created_at,
         updated_at,
         lead_tags ( tags ( name ) )
@@ -112,6 +136,16 @@ export async function GET() {
     statuses: lead.statuses,
     contactDate: lead.contact_date,
     followUpDate: lead.follow_up_date,
+    contactedAt: lead.contacted_at,
+    repliedAt: lead.replied_at,
+    lastContactAt: lead.last_contact_at,
+    lastOutboundAt: lead.last_outbound_at,
+    lastInboundAt: lead.last_inbound_at,
+    contactChannel: lead.contact_channel,
+    nextAction: lead.next_action,
+    nextActionAt: lead.next_action_at,
+    source: lead.source,
+    googlePlaceId: lead.google_place_id,
     createdAt: lead.created_at,
     updatedAt: lead.updated_at,
     tags: lead.lead_tags.flatMap((link) =>
@@ -159,6 +193,63 @@ export async function POST(request: Request) {
       error instanceof CsvImportError ? error.message : "El CSV no es válido.",
       400
     );
+  }
+
+  const { data: comparableData, error: comparableError } = await auth.supabase
+    .from("leads")
+    .select(
+      "id, name, instagram, website, phone, address, lat, lng, google_place_id, normalized_phone, normalized_instagram, website_domain"
+    )
+    .eq("user_id", auth.userId);
+  if (comparableError) {
+    return jsonError("No se pudieron comprobar los leads duplicados.", 500);
+  }
+
+  const comparables: LeadImportComparable[] = comparableData.map((lead) => ({
+    id: lead.id,
+    name: lead.name,
+    instagram: lead.instagram,
+    website: lead.website,
+    phone: lead.phone,
+    address: lead.address,
+    lat: lead.lat,
+    lng: lead.lng,
+    googlePlaceId: lead.google_place_id,
+    normalizedPhone: lead.normalized_phone,
+    normalizedInstagram: lead.normalized_instagram,
+    websiteDomain: lead.website_domain,
+  }));
+  const accepted = [] as typeof leads;
+  let skippedDuplicates = 0;
+  let possibleDuplicates = 0;
+  for (const lead of leads) {
+    const duplicate = findDuplicateLead(lead, comparables);
+    if (duplicate?.confidence === "strong") {
+      skippedDuplicates += 1;
+      continue;
+    }
+    if (duplicate?.confidence === "possible") possibleDuplicates += 1;
+    accepted.push(lead);
+    comparables.push({
+      id: -(accepted.length),
+      name: lead.name,
+      instagram: lead.instagram,
+      website: lead.website,
+      phone: lead.phone,
+      address: lead.address,
+      lat: lead.lat,
+      lng: lead.lng,
+      googlePlaceId: lead.googlePlaceId,
+    });
+  }
+  leads = accepted;
+  if (leads.length === 0) {
+    return Response.json({
+      imported: 0,
+      createdTags: 0,
+      skippedDuplicates,
+      possibleDuplicates,
+    });
   }
 
   const { data: currentTags, error: tagsError } = await auth.supabase
@@ -220,27 +311,49 @@ export async function POST(request: Request) {
 
   for (const batch of chunks(leads, INSERT_BATCH_SIZE)) {
     const now = new Date().toISOString();
-    const rows = batch.map((lead) => ({
-      user_id: auth.userId,
-      name: lead.name,
-      instagram: lead.instagram,
-      website: lead.website,
-      website_status: lead.websiteStatus,
-      phone: lead.phone,
-      address: lead.address,
-      lat: lead.lat,
-      lng: lead.lng,
-      problem: lead.problem,
-      notes: lead.notes,
-      status: lead.status,
-      statuses: lead.statuses,
-      contact_date: areStatusesUncontacted(lead.statuses)
-        ? null
-        : (lead.contactDate ?? now.slice(0, 10)),
-      follow_up_date: lead.followUpDate,
-      created_at: lead.createdAt ?? now,
-      updated_at: lead.updatedAt ?? lead.createdAt ?? now,
-    }));
+    const rows = batch.map((lead) => {
+      const contactedStage = [
+        "contactado",
+        "respondio",
+        "interesado",
+        "cliente",
+      ].includes(lead.status);
+      const repliedStage = ["respondio", "interesado", "cliente"].includes(
+        lead.status
+      );
+      const contactedAt = lead.contactedAt ?? (contactedStage ? now : null);
+      const repliedAt = lead.repliedAt ?? (repliedStage ? now : null);
+      return {
+        user_id: auth.userId,
+        name: lead.name,
+        instagram: lead.instagram,
+        website: lead.website,
+        website_status: lead.websiteStatus,
+        phone: lead.phone,
+        address: lead.address,
+        lat: lead.lat,
+        lng: lead.lng,
+        problem: lead.problem,
+        notes: lead.notes,
+        status: lead.status,
+        statuses: [lead.status],
+        contact_date: contactedAt?.slice(0, 10) ?? null,
+        follow_up_date: lead.nextActionAt?.slice(0, 10) ?? null,
+        contacted_at: contactedAt,
+        replied_at: repliedAt,
+        last_contact_at:
+          lead.lastContactAt ?? repliedAt ?? contactedAt,
+        last_outbound_at: lead.lastOutboundAt ?? contactedAt,
+        last_inbound_at: lead.lastInboundAt ?? repliedAt,
+        contact_channel: lead.contactChannel,
+        next_action: lead.nextAction,
+        next_action_at: lead.nextActionAt,
+        source: lead.source,
+        google_place_id: lead.googlePlaceId,
+        created_at: lead.createdAt ?? now,
+        updated_at: lead.updatedAt ?? lead.createdAt ?? now,
+      };
+    });
     const { data: inserted, error } = await auth.supabase
       .from("leads")
       .insert(rows)
@@ -291,5 +404,7 @@ export async function POST(request: Request) {
   return Response.json({
     imported: insertedLeadIds.length,
     createdTags: newTagNames.length,
+    skippedDuplicates,
+    possibleDuplicates,
   });
 }

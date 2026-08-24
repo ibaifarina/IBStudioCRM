@@ -67,10 +67,7 @@ export default function LeadsMap({ leads }: { leads: LeadWithTags[] }) {
                   className="mt-0.5 mb-1 text-xs font-medium"
                   style={{ color }}
                 >
-                  {lead.statuses
-                    .map((status) => STATUS_MAP[status]?.label)
-                    .filter(Boolean)
-                    .join(" · ")}
+                  {STATUS_MAP[lead.status]?.label}
                   {lead.tags.length > 0 &&
                     ` · ${lead.tags.map((t) => t.name).join(", ")}`}
                 </p>

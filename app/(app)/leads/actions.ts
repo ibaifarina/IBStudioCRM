@@ -2,6 +2,7 @@
 
 import {
   isValidLeadSort,
+  isValidNextAction,
   isValidStatus,
   isValidWebsiteStatus,
 } from "@/lib/config";
@@ -51,7 +52,11 @@ function validCursor(cursor: unknown): cursor is LeadCursor | null | undefined {
       "followUpDate" in cursor &&
       (cursor.followUpDate === null ||
         (typeof cursor.followUpDate === "string" &&
-          !Number.isNaN(Date.parse(cursor.followUpDate)))))
+          !Number.isNaN(Date.parse(cursor.followUpDate)))) &&
+      "nextActionAt" in cursor &&
+      (cursor.nextActionAt === null ||
+        (typeof cursor.nextActionAt === "string" &&
+          !Number.isNaN(Date.parse(cursor.nextActionAt)))))
   );
 }
 
@@ -62,6 +67,16 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
   const values = filters as Record<string, unknown>;
   if (values.search != null && typeof values.search !== "string") return null;
   if (values.status != null && typeof values.status !== "string") return null;
+  if (values.nextAction != null && typeof values.nextAction !== "string") {
+    return null;
+  }
+  if (
+    values.actionTiming != null &&
+    values.actionTiming !== "today" &&
+    values.actionTiming !== "overdue"
+  ) {
+    return null;
+  }
   if (
     values.websiteStatus != null &&
     typeof values.websiteStatus !== "string"
@@ -70,6 +85,9 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
   }
   const typedFilters = values as LeadFilters;
   if (typedFilters.status && !isValidStatus(typedFilters.status)) return null;
+  if (typedFilters.nextAction && !isValidNextAction(typedFilters.nextAction)) {
+    return null;
+  }
   if (
     typedFilters.websiteStatus &&
     !isValidWebsiteStatus(typedFilters.websiteStatus)
@@ -92,6 +110,8 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
   return {
     search: typedFilters.search?.trim().slice(0, 100) || undefined,
     status: typedFilters.status,
+    nextAction: typedFilters.nextAction,
+    actionTiming: typedFilters.actionTiming,
     websiteStatus: typedFilters.websiteStatus,
     tagId: typedFilters.tagId,
     createdFrom: typedFilters.createdFrom,

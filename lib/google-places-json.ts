@@ -1,4 +1,9 @@
 import type { LeadImportComparable } from "@/lib/types";
+import {
+  normalizeInstagramUsername,
+  normalizePhoneE164,
+  normalizeWebsiteDomain,
+} from "@/lib/lead-identifiers";
 
 export const MAX_GOOGLE_PLACES_LEADS = 5_000;
 
@@ -140,46 +145,49 @@ function normalizeText(value: string | null | undefined) {
     .trim() ?? "";
 }
 
-function normalizePhone(value: string | null | undefined) {
-  const digits = value?.replace(/\D/g, "") ?? "";
-  if (digits.length < 7) return "";
-  return digits.length > 9 ? digits.slice(-9) : digits;
-}
-
-function normalizeInstagram(value: string | null | undefined) {
-  return value?.trim().replace(/^@/, "").toLocaleLowerCase("es") ?? "";
-}
-
-function normalizeWebsite(value: string | null | undefined) {
-  if (!value) return "";
-  try {
-    const parsed = new URL(value.includes("://") ? value : `https://${value}`);
-    return `${parsed.hostname.replace(/^www\./, "")}${parsed.pathname.replace(/\/$/, "")}`
-      .toLocaleLowerCase("es");
-  } catch {
-    return normalizeText(value);
-  }
-}
-
 function coordinatesKey(lat: number | null, lng: number | null) {
   return lat == null || lng == null ? "" : `${lat.toFixed(5)},${lng.toFixed(5)}`;
 }
 
 function duplicateReason(
   candidate: GooglePlacesLeadDraft,
-  existing: LeadImportComparable
+  existing: LeadImportComparable | GooglePlacesLeadDraft
 ) {
-  const candidatePhone = normalizePhone(candidate.phone);
-  if (candidatePhone && candidatePhone === normalizePhone(existing.phone)) {
+  const existingPlaceId =
+    "placeId" in existing ? existing.placeId : existing.googlePlaceId;
+  if (candidate.placeId && candidate.placeId === existingPlaceId) {
+    return "Mismo Google Maps Place ID";
+  }
+
+  const candidatePhone = normalizePhoneE164(candidate.phone);
+  const existingPhone =
+    "normalizedPhone" in existing
+      ? existing.normalizedPhone || normalizePhoneE164(existing.phone)
+      : normalizePhoneE164(existing.phone);
+  if (candidatePhone && candidatePhone === existingPhone) {
     return "Mismo teléfono";
   }
 
-  const candidateInstagram = normalizeInstagram(candidate.instagram);
+  const candidateInstagram = normalizeInstagramUsername(candidate.instagram);
+  const existingInstagram =
+    "normalizedInstagram" in existing
+      ? existing.normalizedInstagram ||
+        normalizeInstagramUsername(existing.instagram)
+      : normalizeInstagramUsername(existing.instagram);
   if (
     candidateInstagram &&
-    candidateInstagram === normalizeInstagram(existing.instagram)
+    candidateInstagram === existingInstagram
   ) {
     return "Mismo Instagram";
+  }
+
+  const candidateWebsite = normalizeWebsiteDomain(candidate.website);
+  const existingWebsite =
+    "websiteDomain" in existing
+      ? existing.websiteDomain || normalizeWebsiteDomain(existing.website)
+      : normalizeWebsiteDomain(existing.website);
+  if (candidateWebsite && candidateWebsite === existingWebsite) {
+    return "Mismo dominio web";
   }
 
   const candidateName = normalizeText(candidate.name);
@@ -192,16 +200,6 @@ function duplicateReason(
     candidateAddress === normalizeText(existing.address)
   ) {
     return "Mismo nombre y dirección";
-  }
-
-  const candidateWebsite = normalizeWebsite(candidate.website);
-  if (
-    candidateName &&
-    candidateName === existingName &&
-    candidateWebsite &&
-    candidateWebsite === normalizeWebsite(existing.website)
-  ) {
-    return "Mismo nombre y web";
   }
 
   const candidateCoordinates = coordinatesKey(candidate.lat, candidate.lng);

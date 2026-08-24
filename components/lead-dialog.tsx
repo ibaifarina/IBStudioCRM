@@ -15,6 +15,7 @@ import {
   shouldShowContactDateNotice,
 } from "@/components/contact-date-notice";
 import { DateField } from "@/components/date-field";
+import { NextActionPicker } from "@/components/next-action-badge";
 import { StatusPicker } from "@/components/status-badge";
 import { TagPicker } from "@/components/tag-picker";
 import { WebsiteStatusDot } from "@/components/website-status-badge";
@@ -38,12 +39,21 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { geocodeAddress, saveLead } from "@/lib/actions";
 import {
-  areStatusesUncontacted,
+  CONTACT_CHANNELS,
+  LEAD_SOURCES,
+  defaultNextActionForStatus,
   WEBSITE_STATUSES,
+  type ContactChannelKey,
+  type LeadSourceKey,
+  type NextActionKey,
   type StatusKey,
   type WebsiteStatusKey,
 } from "@/lib/config";
-import { todayISO } from "@/lib/dates";
+import {
+  dateInputToTimestamp,
+  timestampToDateInput,
+  todayISO,
+} from "@/lib/dates";
 import {
   googleMapsLeadToFormData,
   type GoogleMapsLead,
@@ -62,9 +72,13 @@ type FormState = {
   lat: number | null;
   lng: number | null;
   notes: string;
-  statuses: StatusKey[];
-  contactDate: string;
-  followUpDate: string;
+  status: StatusKey;
+  contactedDate: string;
+  contactChannel: ContactChannelKey | "";
+  nextAction: NextActionKey;
+  nextActionDate: string;
+  source: LeadSourceKey;
+  googlePlaceId: string;
   tags: Tag[];
 };
 
@@ -82,11 +96,13 @@ function fromLead(lead: LeadWithTags): FormState {
     lat: lead.lat,
     lng: lead.lng,
     notes,
-    statuses: lead.statuses,
-    contactDate:
-      lead.contactDate ??
-      (!areStatusesUncontacted(lead.statuses) ? todayISO() : ""),
-    followUpDate: lead.followUpDate ?? "",
+    status: lead.status,
+    contactedDate: timestampToDateInput(lead.contactedAt),
+    contactChannel: lead.contactChannel ?? "",
+    nextAction: lead.nextAction,
+    nextActionDate: timestampToDateInput(lead.nextActionAt),
+    source: lead.source,
+    googlePlaceId: lead.googlePlaceId ?? "",
     tags: lead.tags,
   };
 }
@@ -98,7 +114,6 @@ function addDays(base: string, days: number): string {
 }
 
 function emptyForm(): FormState {
-  const today = todayISO();
   return {
     name: "",
     instagram: "",
@@ -109,9 +124,13 @@ function emptyForm(): FormState {
     lat: null,
     lng: null,
     notes: "",
-    statuses: ["por_contactar"],
-    contactDate: today,
-    followUpDate: addDays(today, 7),
+    status: "por_contactar",
+    contactedDate: "",
+    contactChannel: "",
+    nextAction: "contactar",
+    nextActionDate: "",
+    source: "manual",
+    googlePlaceId: "",
     tags: [],
   };
 }
@@ -161,6 +180,9 @@ export function LeadDialog({
   const [geoLoading, setGeoLoading] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [showContactDateNotice, setShowContactDateNotice] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<
+    import("@/lib/types").DuplicateWarning | null
+  >(null);
   const [saving, startSaving] = useTransition();
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -180,11 +202,13 @@ export function LeadDialog({
             ? {
                 ...emptyForm(),
                 ...googleMapsLeadToFormData(importedMapsLead),
+                source: "google_maps",
               }
             : emptyForm()
       );
       setGeoResults([]);
       setShowContactDateNotice(false);
+      setDuplicateWarning(null);
       setAdvanced(
         Boolean(
           importedMapsLead ||
@@ -192,10 +216,10 @@ export function LeadDialog({
               (lead.phone ||
                 lead.website ||
                 lead.websiteStatus !== "sin_revisar" ||
-                lead.followUpDate ||
+                lead.nextActionAt ||
                 !(
-                  lead.statuses.length === 1 &&
-                  lead.statuses[0] === "por_contactar"
+                  lead.status === "por_contactar" &&
+                  lead.nextAction === "contactar"
                 )))
         )
       );
@@ -248,7 +272,7 @@ export function LeadDialog({
     }
   };
 
-  const submit = (keepOpen: boolean) => {
+  const submit = (keepOpen: boolean, allowDuplicate = false) => {
     startSaving(async () => {
       const result = await saveLead({
         id: lead?.id,
@@ -262,16 +286,23 @@ export function LeadDialog({
         lng: form.lng,
         problem: null,
         notes: form.notes,
-        statuses: form.statuses,
-        contactDate: areStatusesUncontacted(form.statuses)
-          ? ""
-          : form.contactDate,
-        followUpDate: form.followUpDate,
+        status: form.status,
+        contactedAt: dateInputToTimestamp(form.contactedDate),
+        contactChannel: form.contactChannel || null,
+        nextAction: form.nextAction,
+        nextActionAt: dateInputToTimestamp(form.nextActionDate),
+        source: form.source,
+        googlePlaceId: form.googlePlaceId,
         tagIds: form.tags.map((t) => t.id),
+        allowDuplicate,
       });
 
       if ("error" in result) {
         toast.error(result.error);
+        return;
+      }
+      if ("duplicate" in result) {
+        setDuplicateWarning(result.duplicate);
         return;
       }
 
@@ -282,6 +313,7 @@ export function LeadDialog({
         setGeoResults([]);
         setAdvanced(false);
         setShowContactDateNotice(false);
+        setDuplicateWarning(null);
         nameRef.current?.focus();
       } else {
         onOpenChange(false);
@@ -528,23 +560,32 @@ export function LeadDialog({
             {advanced && (
               <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <Label className={FIELD_LABEL_CLS}>Estados</Label>
+                  <Label className={FIELD_LABEL_CLS}>Estado comercial</Label>
                   <StatusPicker
-                    statuses={form.statuses}
+                    status={form.status}
                     className="w-full"
-                    onChange={(statuses) => {
+                    onChange={(status) => {
                       const changedToContacted =
-                        statuses.includes("contactado") &&
-                        !form.statuses.includes("contactado");
+                        status === "contactado" &&
+                        form.status === "por_contactar";
+                      const previousDefault = defaultNextActionForStatus(form.status);
                       setForm((current) => ({
                         ...current,
-                        statuses,
-                        contactDate:
-                          areStatusesUncontacted(statuses)
+                        status,
+                        contactedDate:
+                          changedToContacted && !current.contactedDate
+                            ? todayISO()
+                            : current.contactedDate,
+                        nextAction:
+                          status === "cliente" || status === "descartado"
+                            ? "sin_accion"
+                            : current.nextAction === previousDefault
+                              ? defaultNextActionForStatus(status)
+                              : current.nextAction,
+                        nextActionDate:
+                          status === "cliente" || status === "descartado"
                             ? ""
-                            : changedToContacted || !current.contactDate
-                              ? todayISO()
-                              : current.contactDate,
+                            : current.nextActionDate,
                       }));
                       if (
                         changedToContacted &&
@@ -556,14 +597,14 @@ export function LeadDialog({
                   />
                 </div>
 
-                {!areStatusesUncontacted(form.statuses) && (
+                {form.contactedDate && (
                   <div className="grid gap-1.5">
                     <Label className={FIELD_LABEL_CLS}>
                       Fecha de contacto
                     </Label>
                     <DateField
-                      value={form.contactDate}
-                      onChange={(v) => set("contactDate", v)}
+                      value={form.contactedDate}
+                      onChange={(v) => set("contactedDate", v)}
                     />
                   </div>
                 )}
@@ -591,10 +632,23 @@ export function LeadDialog({
                 </div>
 
                 <div className="grid gap-1.5">
-                  <Label className={FIELD_LABEL_CLS}>Follow-up</Label>
+                  <Label className={FIELD_LABEL_CLS}>Próxima acción</Label>
+                  <NextActionPicker
+                    action={form.nextAction}
+                    className="w-full"
+                    onChange={(nextAction) => {
+                      set("nextAction", nextAction);
+                      if (nextAction === "sin_accion") set("nextActionDate", "");
+                    }}
+                  />
+                </div>
+
+                {form.nextAction !== "sin_accion" && (
+                  <div className="grid gap-1.5">
+                    <Label className={FIELD_LABEL_CLS}>Fecha de la acción</Label>
                   <DateField
-                    value={form.followUpDate}
-                    onChange={(v) => set("followUpDate", v)}
+                    value={form.nextActionDate}
+                    onChange={(v) => set("nextActionDate", v)}
                   />
                   <div className="flex gap-1">
                     {[3, 7, 14].map((d) => (
@@ -603,19 +657,76 @@ export function LeadDialog({
                         type="button"
                         className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                         onClick={() =>
-                          set("followUpDate", addDays(form.contactDate, d))
+                          set("nextActionDate", addDays(form.contactedDate, d))
                         }
                       >
                         +{d} días
                       </button>
                     ))}
                   </div>
+                  </div>
+                )}
+
+                <div className="grid gap-1.5">
+                  <Label className={FIELD_LABEL_CLS}>Canal de contacto</Label>
+                  <Select
+                    value={form.contactChannel || "none"}
+                    onValueChange={(value) =>
+                      set(
+                        "contactChannel",
+                        value === "none" ? "" : (value as ContactChannelKey)
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin especificar</SelectItem>
+                      {CONTACT_CHANNELS.map((channel) => (
+                        <SelectItem key={channel.value} value={channel.value}>
+                          {channel.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label className={FIELD_LABEL_CLS}>Fuente</Label>
+                  <Select
+                    value={form.source}
+                    onValueChange={(value) => set("source", value as LeadSourceKey)}
+                  >
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LEAD_SOURCES.map((source) => (
+                        <SelectItem key={source.value} value={source.value}>
+                          {source.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             )}
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t px-5 py-3.5">
+            {duplicateWarning && (
+              <div className="mb-1 flex w-full flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                <span className="min-w-0 flex-1">
+                  Posible duplicado: <strong>{duplicateWarning.leadName}</strong> ya existe · {duplicateWarning.reason}.
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={saving}
+                  onClick={() => submit(false, true)}
+                >
+                  Crear de todos modos
+                </Button>
+              </div>
+            )}
             {!isEdit && (
               <Button
                 type="button"

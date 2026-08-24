@@ -23,6 +23,7 @@ import {
   HistoryIcon,
   Loader2Icon,
   MapPinIcon,
+  MessageCircleIcon,
   MessageSquareTextIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -48,12 +49,12 @@ import { LeadImportDialog } from "@/components/lead-import-dialog";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { LeadDialog } from "@/components/lead-dialog";
+import { NextActionDot, NextActionSelect } from "@/components/next-action-badge";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
 import { UseMessageTemplateDialog } from "@/components/use-message-template-dialog";
 import {
   WebsiteStatusDot,
-  WebsiteStatusSelect,
 } from "@/components/website-status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,14 +87,21 @@ import {
 import { deleteLead } from "@/lib/actions";
 import {
   LEAD_SORTS,
+  NEXT_ACTIONS,
   STATUSES,
   WEBSITE_STATUSES,
   WEBSITE_STATUS_MAP,
   type StatusKey,
-  type WebsiteStatusKey,
+  type NextActionKey,
 } from "@/lib/config";
-import { formatDateShort, isFollowUpOverdue, isFollowUpToday } from "@/lib/dates";
+import {
+  formatActionTiming,
+  formatRelativeTime,
+  isNextActionOverdue,
+  isNextActionToday,
+} from "@/lib/dates";
 import { openNewLead } from "@/lib/events";
+import { leadActivitySummary } from "@/lib/lead-activity";
 import type {
   LeadFilters,
   LeadPage,
@@ -154,46 +162,59 @@ function CopyHint({
   );
 }
 
-function FollowUpCell({ lead }: { lead: LeadWithTags }) {
-  const overdue = isFollowUpOverdue(lead.followUpDate, lead.statuses);
-  const dueToday = isFollowUpToday(lead.followUpDate, lead.statuses);
-
-  if (!lead.followUpDate) {
-    return <span className="text-muted-foreground/60">—</span>;
-  }
+function NextActionCell({
+  lead,
+  onChange,
+}: {
+  lead: LeadWithTags;
+  onChange: (action: NextActionKey, actionAt: string | null) => void;
+}) {
+  const overdue = isNextActionOverdue(lead.nextAction, lead.nextActionAt);
+  const dueToday = isNextActionToday(lead.nextAction, lead.nextActionAt);
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 tabular-nums",
-        overdue && "text-destructive",
-        dueToday && "text-brand"
-      )}
-    >
-      <span
-        className={cn(
-          "size-1.5 rounded-full",
-          overdue
-            ? "bg-destructive"
-            : dueToday
-              ? "bg-brand"
-              : "bg-muted-foreground/30"
-        )}
+    <div className="min-w-0">
+      <NextActionSelect
+        leadId={lead.id}
+        action={lead.nextAction}
+        actionAt={lead.nextActionAt}
+        onActionChange={onChange}
       />
-      <span className={cn((overdue || dueToday) && "font-semibold")}>
-        {formatDateShort(lead.followUpDate)}
-      </span>
-      {overdue && (
-        <span className="rounded-full bg-destructive/10 px-1.5 py-px text-[10px] font-semibold tracking-wide text-destructive uppercase dark:bg-destructive/15">
-          Vencido
-        </span>
+      {lead.nextAction !== "sin_accion" && (
+        <p className={cn("mt-0.5 text-xs text-muted-foreground", overdue && "font-medium text-destructive", dueToday && "font-medium text-brand")}>
+          {formatActionTiming(lead.nextAction, lead.nextActionAt)}
+        </p>
       )}
-      {dueToday && (
-        <span className="rounded-full bg-brand/10 px-1.5 py-px text-[10px] font-semibold tracking-wide text-brand uppercase dark:bg-brand/15">
-          Hoy
+    </div>
+  );
+}
+
+function ChannelsCell({ lead }: { lead: LeadWithTags }) {
+  const channels = [
+    { key: "instagram", available: Boolean(lead.instagram), icon: AtSignIcon, label: "Instagram" },
+    { key: "website", available: Boolean(lead.website), icon: GlobeIcon, label: "Web" },
+    { key: "phone", available: Boolean(lead.phone), icon: PhoneIcon, label: "Teléfono" },
+    { key: "whatsapp", available: Boolean(lead.phone), icon: MessageCircleIcon, label: "WhatsApp" },
+  ];
+  return (
+    <div className="flex items-center gap-1">
+      {channels.map(({ key, available, icon: Icon, label }) => (
+        <span key={key} title={available ? label : `${label}: sin dato`} className={cn("grid size-6 place-items-center rounded-md border", available ? "bg-background text-muted-foreground" : "border-dashed text-muted-foreground/25")}>
+          <Icon className="size-3.5" />
         </span>
-      )}
-    </span>
+      ))}
+    </div>
+  );
+}
+
+function LastActivityCell({ lead }: { lead: LeadWithTags }) {
+  const activity = lead.recentActivities[0];
+  return (
+    <div className="max-w-52">
+      <p className="truncate text-sm">
+        {activity ? leadActivitySummary(activity) : `Actualizado · ${formatRelativeTime(lead.updatedAt)}`}
+      </p>
+    </div>
   );
 }
 
@@ -227,6 +248,8 @@ export function LeadsView({
   initialOpenId,
   initialOpenLead,
   templates,
+  initialNextAction,
+  initialActionTiming,
 }: {
   initialPage: LeadPage;
   tags: Tag[];
@@ -235,6 +258,8 @@ export function LeadsView({
   initialOpenId?: number;
   initialOpenLead: LeadWithTags | null;
   templates: MessageTemplate[];
+  initialNextAction?: NextActionKey;
+  initialActionTiming?: "today" | "overdue";
 }) {
   const router = useRouter();
   const [leads, setLeads] = useState(initialPage.leads);
@@ -245,6 +270,12 @@ export function LeadsView({
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusKey | "all">("all");
+  const [nextActionFilter, setNextActionFilter] = useState<NextActionKey | "all">(
+    initialNextAction ?? "all"
+  );
+  const [actionTiming, setActionTiming] = useState<"today" | "overdue" | "all">(
+    initialActionTiming ?? "all"
+  );
   const [websiteStatusFilter, setWebsiteStatusFilter] =
     useState<string>("all");
   const [tagFilter, setTagFilter] = useState<number | "all">("all");
@@ -307,6 +338,8 @@ export function LeadsView({
     return {
       search: search.trim() || undefined,
       status: statusFilter === "all" ? undefined : statusFilter,
+      nextAction: nextActionFilter === "all" ? undefined : nextActionFilter,
+      actionTiming: actionTiming === "all" ? undefined : actionTiming,
       websiteStatus:
         websiteStatusFilter === "all"
           ? undefined
@@ -317,6 +350,8 @@ export function LeadsView({
     };
   }, [
     addedDateFilter,
+    actionTiming,
+    nextActionFilter,
     search,
     statusFilter,
     tagFilter,
@@ -422,17 +457,44 @@ export function LeadsView({
   const updateLeadStatus = useCallback(
     (
       leadId: number,
-      statuses: StatusKey[],
-      contactDate: string | null
+      result: {
+        status: StatusKey;
+        contactedAt: string | null;
+        repliedAt: string | null;
+        lastContactAt: string | null;
+        nextAction: NextActionKey;
+        nextActionAt: string | null;
+      }
     ) => {
       const update = (lead: LeadWithTags) =>
         lead.id === leadId
-          ? { ...lead, status: statuses[0], statuses, contactDate }
+          ? {
+              ...lead,
+              status: result.status,
+              statuses: [result.status],
+              contactedAt: result.contactedAt,
+              contactDate: result.contactedAt?.slice(0, 10) ?? null,
+              repliedAt: result.repliedAt,
+              lastContactAt: result.lastContactAt,
+              nextAction: result.nextAction,
+              nextActionAt: result.nextActionAt,
+            }
           : lead;
-      const remainsVisible =
+      const matchesStatus =
         statusFilter === "all"
-          ? !statuses.includes("descartado")
-          : statuses.includes(statusFilter);
+          ? result.status !== "descartado"
+          : result.status === statusFilter;
+      const matchesAction =
+        nextActionFilter === "all" || result.nextAction === nextActionFilter;
+      const matchesTiming =
+        actionTiming === "all" ||
+        (actionTiming === "overdue"
+          ? isNextActionOverdue(result.nextAction, result.nextActionAt)
+          : result.nextAction !== "sin_accion" &&
+            (!result.nextActionAt ||
+              isNextActionOverdue(result.nextAction, result.nextActionAt) ||
+              isNextActionToday(result.nextAction, result.nextActionAt)));
+      const remainsVisible = matchesStatus && matchesAction && matchesTiming;
       const wasVisible = leads.some((lead) => lead.id === leadId);
       setLeads((current) =>
         remainsVisible
@@ -454,38 +516,13 @@ export function LeadsView({
         return candidate ? update(candidate) : current;
       });
     },
-    [initialOpenLead, leads, statusFilter]
-  );
-
-  const updateLeadWebsiteStatus = useCallback(
-    (leadId: number, websiteStatus: WebsiteStatusKey) => {
-      const update = (lead: LeadWithTags) =>
-        lead.id === leadId ? { ...lead, websiteStatus } : lead;
-      const remainsVisible =
-        websiteStatusFilter === "all" ||
-        websiteStatus === websiteStatusFilter;
-      const wasVisible = leads.some((lead) => lead.id === leadId);
-      setLeads((current) =>
-        remainsVisible
-          ? current.map(update)
-          : current.filter((lead) => lead.id !== leadId)
-      );
-      if (!remainsVisible && wasVisible) {
-        setTotal((current) =>
-          current == null ? current : Math.max(0, current - 1)
-        );
-      }
-      setOpenLeadOverride((current) => {
-        const candidate =
-          current?.id === leadId
-            ? current
-            : initialOpenLead?.id === leadId
-              ? initialOpenLead
-              : null;
-        return candidate ? update(candidate) : current;
-      });
-    },
-    [initialOpenLead, leads, websiteStatusFilter]
+    [
+      actionTiming,
+      initialOpenLead,
+      leads,
+      nextActionFilter,
+      statusFilter,
+    ]
   );
 
   const openLead =
@@ -502,6 +539,8 @@ export function LeadsView({
   const selectedCount = selectedIds.size;
   const activeFilterCount = [
     statusFilter !== "all",
+    nextActionFilter !== "all",
+    actionTiming !== "all",
     websiteStatusFilter !== "all",
     tagFilter !== "all",
     Boolean(addedDateFilter?.from),
@@ -575,10 +614,21 @@ export function LeadsView({
   };
 
   const updateLead = useCallback((updatedLead: LeadWithTags) => {
-    const remainsVisible =
+    const matchesStatus =
       statusFilter === "all"
-        ? !updatedLead.statuses.includes("descartado")
-        : updatedLead.statuses.includes(statusFilter);
+        ? updatedLead.status !== "descartado"
+        : updatedLead.status === statusFilter;
+    const matchesAction =
+      nextActionFilter === "all" || updatedLead.nextAction === nextActionFilter;
+    const matchesTiming =
+      actionTiming === "all" ||
+      (actionTiming === "overdue"
+        ? isNextActionOverdue(updatedLead.nextAction, updatedLead.nextActionAt)
+        : updatedLead.nextAction !== "sin_accion" &&
+          (!updatedLead.nextActionAt ||
+            isNextActionOverdue(updatedLead.nextAction, updatedLead.nextActionAt) ||
+            isNextActionToday(updatedLead.nextAction, updatedLead.nextActionAt)));
+    const remainsVisible = matchesStatus && matchesAction && matchesTiming;
     const wasVisible = leads.some((lead) => lead.id === updatedLead.id);
     setLeads((current) =>
       remainsVisible
@@ -601,7 +651,7 @@ export function LeadsView({
     setEditing((current) =>
       current?.id === updatedLead.id ? updatedLead : current
     );
-  }, [initialOpenLead, leads, statusFilter]);
+  }, [actionTiming, initialOpenLead, leads, nextActionFilter, statusFilter]);
 
   const removeLead = useCallback((leadId: number) => {
     setLeads((current) => current.filter((lead) => lead.id !== leadId));
@@ -616,6 +666,8 @@ export function LeadsView({
   const resetFilters = () => {
     setSearch("");
     setStatusFilter("all");
+    setNextActionFilter("all");
+    setActionTiming("all");
     setWebsiteStatusFilter("all");
     setTagFilter("all");
     setAddedDateFilter(undefined);
@@ -779,6 +831,41 @@ export function LeadsView({
 
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
+                  <CalendarDaysIcon />
+                  <span>Próxima acción</span>
+                  <FilterMenuValue>
+                    {nextActionFilter === "all"
+                      ? "Todas"
+                      : NEXT_ACTIONS.find((item) => item.value === nextActionFilter)?.shortLabel}
+                  </FilterMenuValue>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56">
+                  <DropdownMenuItem onClick={() => setNextActionFilter("all")}>
+                    <CheckIcon className={cn(nextActionFilter !== "all" && "opacity-0")} />
+                    Todas las acciones
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {NEXT_ACTIONS.map((action) => (
+                    <DropdownMenuItem key={action.value} onClick={() => setNextActionFilter(action.value)}>
+                      <NextActionDot action={action.value} />
+                      <span className="flex-1">{action.label}</span>
+                      {nextActionFilter === action.value && <CheckIcon />}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setActionTiming(actionTiming === "today" ? "all" : "today")}>
+                    <CheckIcon className={cn(actionTiming !== "today" && "opacity-0")} />
+                    Pendientes hasta hoy
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setActionTiming(actionTiming === "overdue" ? "all" : "overdue")}>
+                    <CheckIcon className={cn(actionTiming !== "overdue" && "opacity-0")} />
+                    Solo vencidas
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
                   <GlobeIcon />
                   <span>Web</span>
                   <FilterMenuValue>
@@ -932,6 +1019,18 @@ export function LeadsView({
                 {STATUSES.find((s) => s.value === statusFilter)?.label}
               </FilterChip>
             )}
+            {nextActionFilter !== "all" && (
+              <FilterChip onRemove={() => setNextActionFilter("all")}>
+                <NextActionDot action={nextActionFilter} />
+                {NEXT_ACTIONS.find((action) => action.value === nextActionFilter)?.label}
+              </FilterChip>
+            )}
+            {actionTiming !== "all" && (
+              <FilterChip onRemove={() => setActionTiming("all")}>
+                <CalendarDaysIcon className="size-3 text-muted-foreground" />
+                {actionTiming === "today" ? "Pendientes hasta hoy" : "Acciones vencidas"}
+              </FilterChip>
+            )}
             {websiteStatusFilter !== "all" && (
               <FilterChip onRemove={() => setWebsiteStatusFilter("all")}>
                 <WebsiteStatusDot status={websiteStatusFilter} className="size-3.5" />
@@ -1043,23 +1142,17 @@ export function LeadsView({
               >
                 Negocio
               </TableHead>
-              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
-                Etiquetas
-              </TableHead>
               <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase md:table-cell">
-                Web
-              </TableHead>
-              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase xl:table-cell">
-                Teléfono
+                Canales
               </TableHead>
               <TableHead className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Estado
               </TableHead>
-              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase sm:table-cell">
-                Contacto
+              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
+                Última actividad
               </TableHead>
               <TableHead className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                Follow-up
+                Próxima acción
               </TableHead>
               <TableHead className="w-10" />
             </TableRow>
@@ -1068,7 +1161,7 @@ export function LeadsView({
             {isFiltering && (
               <TableRow>
                 <TableCell
-                  colSpan={selectionMode ? 9 : 8}
+                  colSpan={selectionMode ? 7 : 6}
                   className="h-32 text-center"
                 >
                   <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
@@ -1081,7 +1174,7 @@ export function LeadsView({
             {!isFiltering && filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={selectionMode ? 9 : 8}
+                  colSpan={selectionMode ? 7 : 6}
                   className="h-64 text-center"
                 >
                   <div className="mx-auto flex max-w-xs flex-col items-center gap-3">
@@ -1180,80 +1273,45 @@ export function LeadsView({
                           @{lead.instagram}
                         </div>
                       )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden lg:table-cell">
-                    <div className="flex max-w-48 flex-wrap items-center gap-1">
-                      {lead.tags.slice(0, 2).map((tag) => (
-                        <TagBadge key={tag.id} tag={tag} />
-                      ))}
-                      {lead.tags.length > 2 && (
-                        <span
-                          className="inline-flex h-5 items-center rounded-full border px-1.5 text-[11px] font-medium whitespace-nowrap text-muted-foreground"
-                          title={lead.tags
-                            .slice(2)
-                            .map((tag) => tag.name)
-                            .join(", ")}
-                        >
-                          +{lead.tags.length - 2}
-                        </span>
-                      )}
-                      {lead.tags.length === 0 && (
-                        <span className="text-muted-foreground/50">—</span>
+                      {lead.tags.length > 0 && (
+                        <div className="mt-1 flex max-w-56 flex-wrap gap-1">
+                          {lead.tags.slice(0, 2).map((tag) => (
+                            <TagBadge key={tag.id} tag={tag} />
+                          ))}
+                          {lead.tags.length > 2 && (
+                            <span className="text-[11px] text-muted-foreground">
+                              +{lead.tags.length - 2}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
-                    <WebsiteStatusSelect
-                      leadId={lead.id}
-                      status={lead.websiteStatus}
-                      onStatusChange={(status) =>
-                        updateLeadWebsiteStatus(lead.id, status)
-                      }
-                    />
-                  </TableCell>
-                  <TableCell className="hidden xl:table-cell">
-                    {lead.phone ? (
-                      <button
-                        type="button"
-                        className="group/copy inline-flex items-center rounded-sm text-sm text-muted-foreground tabular-nums outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                        aria-label={`Copiar teléfono de ${lead.name}`}
-                        title="Copiar teléfono"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void copyLeadValue(
-                            lead.phone!,
-                            "Teléfono",
-                            `phone-${lead.id}`
-                          );
-                        }}
-                      >
-                        <PhoneIcon className="mr-1.5 size-3.5" />
-                        {lead.phone}
-                        {copiedField === `phone-${lead.id}` ? (
-                          <CheckIcon className="ml-1 size-3.5 shrink-0 animate-in text-emerald-600 opacity-100 zoom-in-50 dark:text-emerald-400" />
-                        ) : (
-                          <CopyIcon className="ml-1 size-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100 group-focus-visible/copy:opacity-100" />
-                        )}
-                      </button>
-                    ) : (
-                      <span className="text-muted-foreground/50">—</span>
-                    )}
+                    <ChannelsCell lead={lead} />
                   </TableCell>
                   <TableCell className="max-w-44">
                     <StatusSelect
                       leadId={lead.id}
-                      statuses={lead.statuses}
-                      onStatusesChange={(statuses, contactDate) =>
-                        updateLeadStatus(lead.id, statuses, contactDate)
-                      }
+                      status={lead.status}
+                      onStatusChange={(result) => updateLeadStatus(lead.id, result)}
                     />
                   </TableCell>
-                  <TableCell className="hidden text-sm text-muted-foreground tabular-nums sm:table-cell">
-                    {formatDateShort(lead.contactDate)}
+                  <TableCell className="hidden lg:table-cell">
+                    <LastActivityCell lead={lead} />
                   </TableCell>
                   <TableCell>
-                    <FollowUpCell lead={lead} />
+                    <NextActionCell
+                      lead={lead}
+                      onChange={(nextAction, nextActionAt) =>
+                        updateLead({
+                          ...lead,
+                          nextAction,
+                          nextActionAt,
+                          followUpDate: nextActionAt?.slice(0, 10) ?? null,
+                        })
+                      }
+                    />
                   </TableCell>
                   <TableCell
                     className="pr-2"
@@ -1343,20 +1401,26 @@ export function LeadsView({
       </div>
 
       <LeadDetailsModal
+        key={openLead?.id ?? "closed-lead"}
         lead={openLead ?? null}
         onClose={closeSheet}
         onEdit={(lead) => setEditing(lead)}
         onDelete={(lead) => setDeleting(lead)}
         onUseTemplate={setMessageLead}
-        onStatusChange={updateLeadStatus}
+        onLeadChange={updateLead}
       />
 
       {messageLead && (
         <UseMessageTemplateDialog
+          key={messageLead.id}
           lead={messageLead}
           templates={templates}
           open
           onOpenChange={(open) => !open && setMessageLead(null)}
+          onLeadUpdated={(updatedLead) => {
+            updateLead(updatedLead);
+            setMessageLead(updatedLead);
+          }}
         />
       )}
 

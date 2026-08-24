@@ -1,48 +1,63 @@
 export const STATUSES = [
   { value: "por_contactar", label: "Por contactar", color: "#64748b" },
-  {
-    value: "revisar_mas_tarde",
-    label: "Revisar más tarde",
-    color: "#7c3aed",
-  },
   { value: "contactado", label: "Contactado", color: "#d97f06" },
-  { value: "seguimiento", label: "Seguimiento", color: "#ea580c" },
   { value: "respondio", label: "Respondió", color: "#0891b2" },
+  { value: "interesado", label: "Interesado", color: "#7c3aed" },
   { value: "cliente", label: "Cliente", color: "#059669" },
   { value: "descartado", label: "Descartado", color: "#e11d48" },
 ] as const;
 
 export type StatusKey = (typeof STATUSES)[number]["value"];
 
-const UNCONTACTED_STATUSES = new Set<StatusKey>([
-  "por_contactar",
-  "revisar_mas_tarde",
-]);
+const LEGACY_STATUS_ALIASES: Record<string, StatusKey> = {
+  revisar_mas_tarde: "por_contactar",
+  seguimiento: "contactado",
+};
 
 export const STATUS_MAP: Record<StatusKey, { label: string; color: string }> =
   Object.fromEntries(
     STATUSES.map((s) => [s.value, { label: s.label, color: s.color }])
   ) as Record<StatusKey, { label: string; color: string }>;
 
-/** Estados en los que un follow-up sigue teniendo sentido */
 export const PENDING_STATUSES: StatusKey[] = [
   "por_contactar",
-  "revisar_mas_tarde",
   "contactado",
-  "seguimiento",
+  "respondio",
+  "interesado",
 ];
 
 export function isUncontactedStatus(status: string): boolean {
-  return UNCONTACTED_STATUSES.has(status as StatusKey);
+  return normalizeLeadStatus(status) === "por_contactar";
+}
+
+export function normalizeLeadStatus(
+  status: string | null | undefined,
+  legacyStatuses?: readonly string[] | null
+): StatusKey {
+  const values = [status, ...(legacyStatuses ?? [])].filter(
+    (value): value is string => Boolean(value)
+  );
+
+  if (values.includes("descartado") && status === "descartado") {
+    return "descartado";
+  }
+  if (values.includes("cliente")) return "cliente";
+  if (values.includes("interesado")) return "interesado";
+  if (values.includes("respondio")) return "respondio";
+  if (values.some((value) => value === "contactado" || value === "seguimiento")) {
+    return "contactado";
+  }
+  if (values.includes("descartado")) return "descartado";
+  if (status && isValidStatus(status)) return status;
+  if (status && LEGACY_STATUS_ALIASES[status]) return LEGACY_STATUS_ALIASES[status];
+  return "por_contactar";
 }
 
 export function normalizeLeadStatuses(
   statuses: readonly string[] | null | undefined,
   fallback = "por_contactar"
 ): StatusKey[] {
-  const valid = [...new Set((statuses ?? []).filter(isValidStatus))];
-  if (valid.length > 0) return valid;
-  return [isValidStatus(fallback) ? fallback : "por_contactar"];
+  return [normalizeLeadStatus(fallback, statuses)];
 }
 
 export function hasLeadStatus(
@@ -53,16 +68,98 @@ export function hasLeadStatus(
 }
 
 export function areStatusesUncontacted(statuses: readonly string[]): boolean {
-  return (
-    statuses.length > 0 &&
-    statuses.every((status) => isUncontactedStatus(status))
-  );
+  return normalizeLeadStatus(statuses[0], statuses) === "por_contactar";
 }
 
 export function hasPendingStatus(statuses: readonly string[]): boolean {
-  return statuses.some((status) =>
-    PENDING_STATUSES.includes(status as StatusKey)
-  );
+  return PENDING_STATUSES.includes(normalizeLeadStatus(statuses[0], statuses));
+}
+
+export const NEXT_ACTIONS = [
+  { value: "contactar", label: "Contactar", shortLabel: "Contactar", color: "#2563eb" },
+  {
+    value: "esperar_respuesta",
+    label: "Esperar respuesta",
+    shortLabel: "Esperar respuesta",
+    color: "#64748b",
+  },
+  {
+    value: "hacer_follow_up",
+    label: "Hacer follow-up",
+    shortLabel: "Follow-up",
+    color: "#d97706",
+  },
+  { value: "responder", label: "Responder", shortLabel: "Responder", color: "#0891b2" },
+  {
+    value: "revisar_mas_tarde",
+    label: "Revisar más tarde",
+    shortLabel: "Revisar",
+    color: "#7c3aed",
+  },
+  { value: "sin_accion", label: "Sin acción", shortLabel: "Sin acción", color: "#94a3b8" },
+] as const;
+
+export type NextActionKey = (typeof NEXT_ACTIONS)[number]["value"];
+
+export const NEXT_ACTION_MAP = Object.fromEntries(
+  NEXT_ACTIONS.map((action) => [action.value, action])
+) as Record<NextActionKey, (typeof NEXT_ACTIONS)[number]>;
+
+export const CONTACT_CHANNELS = [
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "instagram", label: "Instagram" },
+  { value: "phone", label: "Teléfono" },
+  { value: "other", label: "Otro" },
+] as const;
+
+export type ContactChannelKey = (typeof CONTACT_CHANNELS)[number]["value"];
+
+export const CONTACT_CHANNEL_MAP = Object.fromEntries(
+  CONTACT_CHANNELS.map((channel) => [channel.value, channel.label])
+) as Record<ContactChannelKey, string>;
+
+export const LEAD_SOURCES = [
+  { value: "google_maps", label: "Google Maps" },
+  { value: "instagram", label: "Instagram" },
+  { value: "manual", label: "Manual" },
+  { value: "importacion", label: "Importación" },
+  { value: "apify", label: "Apify" },
+  { value: "referral", label: "Referral" },
+  { value: "other", label: "Other" },
+] as const;
+
+export type LeadSourceKey = (typeof LEAD_SOURCES)[number]["value"];
+
+export const LEAD_SOURCE_MAP = Object.fromEntries(
+  LEAD_SOURCES.map((source) => [source.value, source.label])
+) as Record<LeadSourceKey, string>;
+
+export function isValidNextAction(value: string): value is NextActionKey {
+  return NEXT_ACTIONS.some((action) => action.value === value);
+}
+
+export function isValidContactChannel(value: string): value is ContactChannelKey {
+  return CONTACT_CHANNELS.some((channel) => channel.value === value);
+}
+
+export function isValidLeadSource(value: string): value is LeadSourceKey {
+  return LEAD_SOURCES.some((source) => source.value === value);
+}
+
+export function defaultNextActionForStatus(status: StatusKey): NextActionKey {
+  switch (status) {
+    case "por_contactar":
+      return "contactar";
+    case "contactado":
+      return "esperar_respuesta";
+    case "respondio":
+      return "responder";
+    case "interesado":
+      return "hacer_follow_up";
+    case "cliente":
+    case "descartado":
+      return "sin_accion";
+  }
 }
 
 export const WEBSITE_STATUSES = [

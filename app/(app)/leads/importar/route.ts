@@ -14,6 +14,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const INSERT_BATCH_SIZE = 250;
 
 type ExistingLeadRow = {
+  id: number;
   name: string;
   instagram: string | null;
   website: string | null;
@@ -21,6 +22,10 @@ type ExistingLeadRow = {
   address: string | null;
   lat: number | null;
   lng: number | null;
+  google_place_id: string | null;
+  normalized_phone: string | null;
+  normalized_instagram: string | null;
+  website_domain: string | null;
 };
 
 type TagRow = { id: number; name: string; color: string };
@@ -130,7 +135,9 @@ export async function POST(request: Request) {
 
   const { data: existingData, error: existingError } = await supabase
     .from("leads")
-    .select("name, instagram, website, phone, address, lat, lng")
+    .select(
+      "id, name, instagram, website, phone, address, lat, lng, google_place_id, normalized_phone, normalized_instagram, website_domain"
+    )
     .eq("user_id", userId);
   if (existingError) {
     return jsonError("No se pudieron comprobar los leads duplicados.", 500);
@@ -138,7 +145,20 @@ export async function POST(request: Request) {
 
   const analyzed = analyzeGooglePlacesLeads(
     parsed,
-    existingData as ExistingLeadRow[]
+    (existingData as ExistingLeadRow[]).map((lead) => ({
+      id: lead.id,
+      name: lead.name,
+      instagram: lead.instagram,
+      website: lead.website,
+      phone: lead.phone,
+      address: lead.address,
+      lat: lead.lat,
+      lng: lead.lng,
+      googlePlaceId: lead.google_place_id,
+      normalizedPhone: lead.normalized_phone,
+      normalizedInstagram: lead.normalized_instagram,
+      websiteDomain: lead.website_domain,
+    }))
   );
   const requestedLeads = requestedItems.map((request) => ({
     request,
@@ -238,6 +258,9 @@ export async function POST(request: Request) {
           lng: lead.lng,
           status: "por_contactar",
           statuses: ["por_contactar"],
+          next_action: "contactar",
+          source: "apify",
+          google_place_id: lead.placeId,
         }))
       )
       .select("id");

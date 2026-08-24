@@ -7,6 +7,7 @@ import { Loader2Icon, MapPinOffIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { locateGoogleMapsLinks } from "@/lib/actions";
 import { STATUSES, type StatusKey } from "@/lib/config";
+import { isNextActionOverdue } from "@/lib/dates";
 import { isGoogleMapsShortUrl } from "@/lib/parse";
 import type { LeadWithTags } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,9 @@ const LeadsMap = dynamic(() => import("@/components/leads-map"), {
 
 export function MapView({ leads }: { leads: LeadWithTags[] }) {
   const [hidden, setHidden] = useState<Set<StatusKey>>(new Set());
+  const [operationalFilter, setOperationalFilter] = useState<
+    "follow_up" | "overdue" | null
+  >(null);
   const [isLocating, startLocating] = useTransition();
   const lastRequestedLinks = useRef("");
 
@@ -53,9 +57,16 @@ export function MapView({ leads }: { leads: LeadWithTags[] }) {
     });
   }, [unresolvedMapLinks]);
 
-  const visible = located.filter((lead) =>
-    lead.statuses.some((status) => !hidden.has(status))
-  );
+  const visible = located.filter((lead) => {
+    if (hidden.has(lead.status)) return false;
+    if (operationalFilter === "follow_up") {
+      return lead.nextAction === "hacer_follow_up";
+    }
+    if (operationalFilter === "overdue") {
+      return isNextActionOverdue(lead.nextAction, lead.nextActionAt);
+    }
+    return true;
+  });
 
   const toggle = (status: StatusKey) => {
     setHidden((prev) => {
@@ -70,9 +81,7 @@ export function MapView({ leads }: { leads: LeadWithTags[] }) {
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1.5">
         {STATUSES.map((s) => {
-          const count = located.filter((lead) =>
-            lead.statuses.includes(s.value)
-          ).length;
+          const count = located.filter((lead) => lead.status === s.value).length;
           const off = hidden.has(s.value);
           return (
             <button
@@ -100,6 +109,34 @@ export function MapView({ leads }: { leads: LeadWithTags[] }) {
               />
               {s.label}
               <span className="opacity-70">{count}</span>
+            </button>
+          );
+        })}
+        {[
+          { key: "follow_up" as const, label: "Follow-up pendiente" },
+          { key: "overdue" as const, label: "Acción vencida" },
+        ].map((filter) => {
+          const active = operationalFilter === filter.key;
+          return (
+            <button
+              key={filter.key}
+              type="button"
+              aria-pressed={active}
+              onClick={() =>
+                setOperationalFilter((current) =>
+                  current === filter.key ? null : filter.key
+                )
+              }
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                active
+                  ? filter.key === "overdue"
+                    ? "border-destructive/35 bg-destructive/10 text-destructive"
+                    : "border-violet-500/35 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                  : "text-muted-foreground hover:bg-muted"
+              )}
+            >
+              {filter.label}
             </button>
           );
         })}

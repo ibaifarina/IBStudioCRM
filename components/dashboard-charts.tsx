@@ -10,16 +10,56 @@ import {
 } from "@/components/ui/chart";
 
 export type StatusDatum = { key: string; label: string; value: number; color: string };
-export type ContactDatum = { date: string; label: string; value: number };
+export type ContactDatum = { date: string; label: string; value: number; replies?: number };
 export type TagDatum = { name: string; value: number; color: string };
+export type FunnelDatum = {
+  key: string;
+  label: string;
+  value: number;
+  rate: number | null;
+  color: string;
+};
 
-const chartConfig = {
+const contactChartConfig = {
+  value: { label: "Contactos" },
+  replies: { label: "Respuestas" },
+} satisfies ChartConfig;
+
+const statusChartConfig = {
   value: { label: "Leads" },
 } satisfies ChartConfig;
 
+const tagChartConfig = {
+  value: { label: "Leads" },
+} satisfies ChartConfig;
+
+export function ConversionFunnel({ data }: { data: FunnelDatum[] }) {
+  const maximum = Math.max(data[0]?.value ?? 0, 1);
+  return (
+    <div className="flex h-56 flex-col justify-center gap-2.5">
+      {data.map((step) => (
+        <div key={step.key} className="grid grid-cols-[92px_minmax(0,1fr)_62px] items-center gap-3 text-sm">
+          <span className="text-xs font-medium text-muted-foreground">{step.label}</span>
+          <div className="h-6 overflow-hidden rounded-md bg-muted/60">
+            <div
+              className="flex h-full min-w-8 items-center rounded-md px-2 text-[11px] font-semibold text-white tabular-nums transition-[width]"
+              style={{ width: `${Math.max(8, (step.value / maximum) * 100)}%`, backgroundColor: step.color }}
+            >
+              {step.value}
+            </div>
+          </div>
+          <span className="text-right text-xs text-muted-foreground tabular-nums">
+            {step.rate == null ? "base" : `${step.rate}%`}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function StatusChart({ data }: { data: StatusDatum[] }) {
   return (
-    <ChartContainer config={chartConfig} className="aspect-auto h-56 w-full">
+    <ChartContainer config={statusChartConfig} className="aspect-auto h-56 w-full">
       <BarChart
         data={data}
         layout="vertical"
@@ -60,6 +100,7 @@ export function ContactsChart({
 }) {
   const [period, setPeriod] = useState<"week" | "month">("week");
   const data = period === "week" ? weeklyData : monthlyData;
+  const hasReplies = data.some((day) => (day.replies ?? 0) > 0);
 
   return (
     <div className="flex w-full flex-col gap-3">
@@ -83,7 +124,7 @@ export function ContactsChart({
         </div>
       </div>
       <ChartContainer
-        config={chartConfig}
+        config={contactChartConfig}
         className="aspect-auto h-52 w-full"
       >
         <BarChart data={data} margin={{ left: 4, right: 4, top: 16, bottom: 0 }}>
@@ -113,6 +154,15 @@ export function ContactsChart({
               />
             )}
           </Bar>
+          {hasReplies && (
+            <Bar
+              dataKey="replies"
+              fill="var(--chart-2)"
+              fillOpacity={0.8}
+              radius={[4, 4, 0, 0]}
+              maxBarSize={period === "week" ? 24 : 14}
+            />
+          )}
         </BarChart>
       </ChartContainer>
     </div>
@@ -123,7 +173,7 @@ export function TagsChart({ data }: { data: TagDatum[] }) {
   return (
     <div className="flex flex-1 items-center justify-start gap-4 sm:gap-8">
       <ChartContainer
-        config={chartConfig}
+        config={tagChartConfig}
         className="aspect-square h-44 shrink-0 sm:h-56"
       >
         <PieChart>

@@ -1,4 +1,22 @@
-import type { LeadSortKey, StatusKey, WebsiteStatusKey } from "@/lib/config";
+import type {
+  ContactChannelKey,
+  LeadSortKey,
+  LeadSourceKey,
+  NextActionKey,
+  StatusKey,
+  WebsiteStatusKey,
+} from "@/lib/config";
+
+export type LeadActivity = {
+  id: number;
+  leadId: number;
+  type: string;
+  occurredAt: string;
+  metadata: Record<string, unknown>;
+  description: string | null;
+  origin: string | null;
+  templateId: number | null;
+};
 
 export type Lead = {
   id: number;
@@ -12,13 +30,26 @@ export type Lead = {
   lng: number | null;
   problem: string | null;
   notes: string | null;
-  /** Primary state retained for backwards compatibility and map colouring. */
   status: StatusKey;
+  /** Legacy mirror retained for imports and rollback compatibility. */
   statuses: StatusKey[];
+  contactedAt: string | null;
+  repliedAt: string | null;
+  lastContactAt: string | null;
+  lastOutboundAt: string | null;
+  lastInboundAt: string | null;
+  contactChannel: ContactChannelKey | null;
+  nextAction: NextActionKey;
+  nextActionAt: string | null;
+  source: LeadSourceKey;
+  googlePlaceId: string | null;
+  /** Legacy date mirrors retained during the data migration. */
   contactDate: string | null;
   followUpDate: string | null;
   createdAt: string;
   updatedAt: string;
+  recentActivities: LeadActivity[];
+  hasMoreActivity: boolean;
 };
 
 export type Tag = {
@@ -49,7 +80,12 @@ export type MessageTemplate = {
 
 export type LeadCursor = Pick<
   Lead,
-  "id" | "name" | "createdAt" | "updatedAt" | "followUpDate"
+  | "id"
+  | "name"
+  | "createdAt"
+  | "updatedAt"
+  | "followUpDate"
+  | "nextActionAt"
 >;
 
 export type LeadSort = LeadSortKey;
@@ -57,6 +93,8 @@ export type LeadSort = LeadSortKey;
 export type LeadFilters = {
   search?: string;
   status?: StatusKey;
+  nextAction?: NextActionKey;
+  actionTiming?: "today" | "overdue";
   websiteStatus?: WebsiteStatusKey;
   tagId?: number;
   createdFrom?: string;
@@ -71,8 +109,20 @@ export type LeadPage = {
 
 export type LeadImportComparable = Pick<
   Lead,
-  "name" | "instagram" | "website" | "phone" | "address" | "lat" | "lng"
->;
+  | "id"
+  | "name"
+  | "instagram"
+  | "website"
+  | "phone"
+  | "address"
+  | "lat"
+  | "lng"
+  | "googlePlaceId"
+> & {
+  normalizedPhone?: string | null;
+  normalizedInstagram?: string | null;
+  websiteDomain?: string | null;
+};
 
 export type LeadOption = Pick<Lead, "id" | "name" | "instagram">;
 
@@ -88,21 +138,34 @@ export type LeadInput = {
   lng?: number | null;
   problem?: string | null;
   notes?: string | null;
-  statuses: StatusKey[];
-  contactDate?: string | null;
-  followUpDate?: string | null;
+  status: StatusKey;
+  contactedAt?: string | null;
+  contactChannel?: ContactChannelKey | null;
+  nextAction: NextActionKey;
+  nextActionAt?: string | null;
+  source?: LeadSourceKey;
+  googlePlaceId?: string | null;
   tagIds: number[];
+  allowDuplicate?: boolean;
 };
 
 export type BulkLeadUpdate = {
   leadIds: number[];
-  statuses?: StatusKey[];
+  status?: StatusKey;
   websiteStatus?: WebsiteStatusKey;
   tags?: {
     mode: "add" | "remove" | "replace";
     tagIds: number[];
   };
-  followUpDate?: string | null;
+  nextAction?: NextActionKey;
+  nextActionAt?: string | null;
+};
+
+export type DuplicateWarning = {
+  leadId: number;
+  leadName: string;
+  reason: string;
+  confidence: "strong" | "possible";
 };
 
 export type GeocodeResult = {

@@ -44,6 +44,8 @@ export function LeadDataTransfer() {
         error?: string;
         imported?: number;
         createdTags?: number;
+        skippedDuplicates?: number;
+        possibleDuplicates?: number;
       };
 
       if (!response.ok) {
@@ -56,11 +58,21 @@ export function LeadDataTransfer() {
 
       const imported = result.imported ?? 0;
       const createdTags = result.createdTags ?? 0;
+      const skippedDuplicates = result.skippedDuplicates ?? 0;
+      const possibleDuplicates = result.possibleDuplicates ?? 0;
       setState({
         status: "success",
         message: `${imported} ${imported === 1 ? "lead importado" : "leads importados"}${
           createdTags > 0
             ? ` y ${createdTags} ${createdTags === 1 ? "etiqueta creada" : "etiquetas creadas"}`
+            : ""
+        }${
+          skippedDuplicates > 0
+            ? ` · ${skippedDuplicates} ${skippedDuplicates === 1 ? "duplicado seguro omitido" : "duplicados seguros omitidos"}`
+            : ""
+        }${
+          possibleDuplicates > 0
+            ? ` · aviso: ${possibleDuplicates} ${possibleDuplicates === 1 ? "posible coincidencia importada" : "posibles coincidencias importadas"}`
             : ""
         }.`,
       });
@@ -132,7 +144,8 @@ export function LeadDataTransfer() {
               <h3 className="text-sm font-medium">Importar leads</h3>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                 Añade cada fila como un lead nuevo y reutiliza automáticamente
-                las etiquetas existentes.
+                las etiquetas existentes. Los duplicados seguros se omiten y
+                las coincidencias inciertas se notifican.
               </p>
             </div>
           </div>
