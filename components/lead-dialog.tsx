@@ -85,13 +85,8 @@ type FormState = {
   businessCategories: string[];
   rating: number | null;
   reviewCount: number | null;
-  lastReviewAt: string;
-  photoCount: number | null;
   socialLinks: string[];
   digitalPresenceKnown: boolean;
-  openStatus: string;
-  isPermanentlyClosed: boolean;
-  isChain: boolean;
   tags: Tag[];
 };
 
@@ -121,13 +116,8 @@ function fromLead(lead: LeadWithTags): FormState {
     businessCategories: lead.businessCategories,
     rating: lead.rating,
     reviewCount: lead.reviewCount,
-    lastReviewAt: timestampToDateInput(lead.lastReviewAt),
-    photoCount: lead.photoCount,
     socialLinks: lead.socialLinks,
     digitalPresenceKnown: lead.digitalPresenceKnown,
-    openStatus: lead.openStatus ?? "",
-    isPermanentlyClosed: lead.isPermanentlyClosed,
-    isChain: lead.isChain,
     tags: lead.tags,
   };
 }
@@ -161,13 +151,8 @@ function emptyForm(): FormState {
     businessCategories: [],
     rating: null,
     reviewCount: null,
-    lastReviewAt: "",
-    photoCount: null,
     socialLinks: [],
     digitalPresenceKnown: false,
-    openStatus: "",
-    isPermanentlyClosed: false,
-    isChain: false,
     tags: [],
   };
 }
@@ -298,10 +283,7 @@ export function LeadDialog({
     }
 
     setGeoLoading(true);
-    const query = form.address.includes(",")
-      ? form.address
-      : `${form.address}, Barcelona`;
-    const results = await geocodeAddress(query);
+    const results = await geocodeAddress(form.address);
     setGeoResults(results);
     setGeoLoading(false);
     if (results.length === 0) {
@@ -335,15 +317,8 @@ export function LeadDialog({
         businessCategories: form.businessCategories,
         rating: form.rating,
         reviewCount: form.reviewCount,
-        lastReviewAt: form.lastReviewAt
-          ? `${form.lastReviewAt}T12:00:00.000Z`
-          : null,
-        photoCount: form.photoCount,
         socialLinks: form.socialLinks,
         digitalPresenceKnown: form.digitalPresenceKnown,
-        openStatus: form.openStatus,
-        isPermanentlyClosed: form.isPermanentlyClosed,
-        isChain: form.isChain,
         tagIds: form.tags.map((t) => t.id),
         allowDuplicate,
       });
@@ -766,35 +741,6 @@ export function LeadDialog({
                     }
                     placeholder="80"
                   />
-                </div>
-
-                <div className="grid gap-1.5">
-                  <Label className={FIELD_LABEL_CLS}>Última reseña</Label>
-                  <DateField
-                    value={form.lastReviewAt}
-                    onChange={(value) => set("lastReviewAt", value)}
-                  />
-                </div>
-
-                <div className="flex flex-col justify-end gap-2 rounded-lg border px-3 py-2.5">
-                  <label className="flex cursor-pointer items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.isChain}
-                      onChange={(event) => set("isChain", event.target.checked)}
-                      className="size-4 accent-primary"
-                    />
-                    Franquicia o cadena confirmada
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.isPermanentlyClosed}
-                      onChange={(event) => set("isPermanentlyClosed", event.target.checked)}
-                      className="size-4 accent-primary"
-                    />
-                    Cerrado permanentemente
-                  </label>
                 </div>
 
                 <div className="grid gap-1.5">

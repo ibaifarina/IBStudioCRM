@@ -54,13 +54,8 @@ const HEADERS = [
   "categorias_json",
   "rating",
   "numero_resenas",
-  "ultima_resena",
-  "numero_fotos",
   "perfiles_digitales_json",
   "presencia_digital_revisada",
-  "estado_apertura",
-  "cerrado_permanentemente",
-  "es_cadena",
 ] as const;
 
 const MAX_ROWS = 5_000;
@@ -95,13 +90,8 @@ export type CsvLead = {
   businessCategories: string[];
   rating: number | null;
   reviewCount: number | null;
-  lastReviewAt: string | null;
-  photoCount: number | null;
   socialLinks: string[];
   digitalPresenceKnown: boolean;
-  openStatus: string | null;
-  isPermanentlyClosed: boolean;
-  isChain: boolean;
   tags: string[];
   createdAt: string | null;
   updatedAt: string | null;
@@ -155,13 +145,8 @@ export function serializeLeadsCsv(leads: ExportLead[]): string {
     JSON.stringify(lead.businessCategories),
     lead.rating,
     lead.reviewCount,
-    lead.lastReviewAt,
-    lead.photoCount,
     JSON.stringify(lead.socialLinks),
     lead.digitalPresenceKnown ? "true" : "false",
-    lead.openStatus,
-    lead.isPermanentlyClosed ? "true" : "false",
-    lead.isChain ? "true" : "false",
   ]);
 
   // BOM para que Excel detecte UTF-8 y CRLF para máxima compatibilidad.
@@ -514,13 +499,8 @@ export function parseLeadsCsv(input: string): CsvLead[] {
     businessCategories: findColumn(headers, "categorias_json", "business_categories", "categorias"),
     rating: findColumn(headers, "rating", "valoracion"),
     reviewCount: findColumn(headers, "numero_resenas", "review_count", "reviews_count"),
-    lastReviewAt: findColumn(headers, "ultima_resena", "last_review_at"),
-    photoCount: findColumn(headers, "numero_fotos", "photo_count"),
     socialLinks: findColumn(headers, "perfiles_digitales_json", "social_links"),
     digitalPresenceKnown: findColumn(headers, "presencia_digital_revisada", "digital_presence_known"),
-    openStatus: findColumn(headers, "estado_apertura", "open_status"),
-    isPermanentlyClosed: findColumn(headers, "cerrado_permanentemente", "is_permanently_closed"),
-    isChain: findColumn(headers, "es_cadena", "is_chain"),
   };
 
   if (columns.name < 0) {
@@ -677,13 +657,8 @@ export function parseLeadsCsv(input: string): CsvLead[] {
       businessCategories: parseTags(get(row, columns.businessCategories), rowNumber),
       rating: parseNumber(get(row, columns.rating), "el rating", rowNumber, 0, 5),
       reviewCount: parseInteger(get(row, columns.reviewCount), "el número de reseñas", rowNumber, 10_000_000),
-      lastReviewAt: parseTimestamp(get(row, columns.lastReviewAt), "la última reseña", rowNumber),
-      photoCount: parseInteger(get(row, columns.photoCount), "el número de fotos", rowNumber, 10_000_000),
       socialLinks: parseTags(get(row, columns.socialLinks), rowNumber),
       digitalPresenceKnown: parseBoolean(get(row, columns.digitalPresenceKnown), "presencia_digital_revisada", rowNumber),
-      openStatus: optional(get(row, columns.openStatus)),
-      isPermanentlyClosed: parseBoolean(get(row, columns.isPermanentlyClosed), "cerrado_permanentemente", rowNumber),
-      isChain: parseBoolean(get(row, columns.isChain), "es_cadena", rowNumber),
       tags: parseTags(get(row, columns.tags), rowNumber),
       createdAt: parseTimestamp(
         get(row, columns.createdAt),

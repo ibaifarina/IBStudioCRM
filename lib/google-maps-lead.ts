@@ -26,7 +26,6 @@ export type GoogleMapsLead = {
   rating?: string;
   reviewCount?: string;
   priceLevel?: string;
-  openStatus?: string;
   hours?: string[];
   plusCode?: string;
   coordinates?: { lat: number; lng: number };
@@ -50,8 +49,6 @@ export type GoogleMapsLeadFormData = {
   reviewCount: number | null;
   socialLinks: string[];
   digitalPresenceKnown: true;
-  openStatus: string;
-  isPermanentlyClosed: boolean;
 };
 
 function optionalString(value: unknown, maxLength = 2_000): string | undefined {
@@ -141,7 +138,6 @@ export function parseGoogleMapsLead(raw: string): GoogleMapsLead | null {
       rating: optionalString(candidate.rating, 50),
       reviewCount: optionalString(candidate.reviewCount, 100),
       priceLevel: optionalString(candidate.priceLevel, 100),
-      openStatus: optionalString(candidate.openStatus, 300),
       hours: stringArray(candidate.hours),
       plusCode: optionalString(candidate.plusCode, 200),
       coordinates,
@@ -228,9 +224,5 @@ export function googleMapsLeadToFormData(
     reviewCount: parseLocalizedNumber(lead.reviewCount),
     socialLinks: lead.socialLinks ?? [],
     digitalPresenceKnown: true,
-    openStatus: lead.openStatus ?? "",
-    isPermanentlyClosed: /permanently.closed|cerrado permanentemente|tancat permanentment/i.test(
-      lead.openStatus ?? ""
-    ),
   };
 }

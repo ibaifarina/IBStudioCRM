@@ -87,12 +87,6 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
   ) {
     return null;
   }
-  if (
-    values.leadGrade != null &&
-    !["A", "B", "C", "D"].includes(String(values.leadGrade))
-  ) {
-    return null;
-  }
   for (const key of ["scoreMin", "scoreMax"] as const) {
     const value = values[key];
     if (
@@ -132,7 +126,6 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
     nextAction: typedFilters.nextAction,
     actionTiming: typedFilters.actionTiming,
     websiteStatus: typedFilters.websiteStatus,
-    leadGrade: typedFilters.leadGrade,
     scoreMin: typedFilters.scoreMin,
     scoreMax: typedFilters.scoreMax,
     tagId: typedFilters.tagId,

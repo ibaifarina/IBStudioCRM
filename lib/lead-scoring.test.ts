@@ -1,117 +1,88 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  buildLeadScoringContext,
+  sectorSignalForTags,
+} from "./lead-scoring-context.ts";
 import { calculateLeadScore, classifyWebsite } from "./lead-scoring.ts";
 
-const NOW = new Date("2026-08-24T12:00:00.000Z");
-
-test("classifyWebsite separates owned sites from social, booking and directories", () => {
-  assert.equal(classifyWebsite(null), "NONE");
-  assert.equal(classifyWebsite("https://instagram.com/demo"), "SOCIAL");
-  assert.equal(classifyWebsite("booksy.com/es-es/demo"), "BOOKING_PLATFORM");
-  assert.equal(classifyWebsite("https://doctoralia.es/clinica/demo"), "DIRECTORY");
-  assert.equal(classifyWebsite("https://negocio.es"), "OWN_WEBSITE");
+test("classifyWebsite separates owned sites from associated profiles", () => {
+  assert.equal(classifyWebsite("https://example.com"), "OWN_WEBSITE");
+  assert.equal(classifyWebsite("https://instagram.com/example"), "SOCIAL");
+  assert.equal(classifyWebsite("https://booksy.com/example"), "BOOKING_PLATFORM");
+  assert.equal(classifyWebsite("https://linktr.ee/example"), "DIRECTORY");
 });
 
-test("strong hair salon is grade A", () => {
-  const result = calculateLeadScore({
-    name: "Peluquería Demo",
-    address: "Terrassa, Barcelona",
-    businessCategories: ["Peluquería"],
-    reviewCount: 80,
-    rating: 4.7,
-    instagram: "pelu.demo",
-    website: "https://booksy.com/es-es/demo",
-    websiteStatus: "no_tiene_web",
-    phone: "+34 612 000 000",
-    source: "apify",
-    digitalPresenceKnown: true,
-  }, { now: NOW });
-  assert.equal(result.leadGrade, "A");
-  assert.ok(result.leadScore >= 80 && result.leadScore <= 95);
-});
-
-test("unvalidated hair salon stays grade D despite having no website", () => {
-  const result = calculateLeadScore({
-    businessCategories: ["Peluquería"],
-    reviewCount: 3,
-    rating: 4.8,
-    websiteStatus: "no_tiene_web",
-    phone: "+34 612 000 000",
-    digitalPresenceKnown: true,
-  }, { now: NOW });
-  assert.equal(result.leadGrade, "D");
-  assert.ok(result.leadScore >= 35 && result.leadScore <= 50);
-  assert.equal(result.scoreBreakdown.penalties, 10);
-});
-
-test("dental clinic with traction is grade A", () => {
-  const result = calculateLeadScore({
-    address: "Sabadell",
-    businessCategories: ["Clínica dental"],
-    reviewCount: 60,
-    rating: 4.6,
-    instagram: "dental.demo",
-    websiteStatus: "no_tiene_web",
-    phone: "+34 612 000 000",
-    source: "google_maps",
-  }, { now: NOW });
-  assert.equal(result.leadGrade, "A");
-});
-
-test("restaurant scores below an equivalent clinic", () => {
+test("rating is used when present", () => {
   const common = {
-    reviewCount: 80,
-    rating: 4.6,
-    instagram: "demo",
     websiteStatus: "no_tiene_web" as const,
-    phone: "+34 612 000 000",
-    source: "apify",
-  };
-  const restaurant = calculateLeadScore({ ...common, businessCategories: ["Restaurante"] }, { now: NOW });
-  const clinic = calculateLeadScore({ ...common, businessCategories: ["Clínica dental"] }, { now: NOW });
-  assert.equal(restaurant.leadGrade, "B");
-  assert.ok(restaurant.leadScore < clinic.leadScore);
-});
-
-test("a good owned website sharply reduces the opportunity component", () => {
-  const result = calculateLeadScore({
-    businessCategories: ["Clínica dental"],
-    reviewCount: 100,
-    rating: 4.8,
-    instagram: "dental.demo",
-    website: "https://clinicademo.es",
-    websiteStatus: "tiene_web",
-    phone: "+34 612 000 000",
-  }, { now: NOW });
-  assert.equal(result.scoreBreakdown.webOpportunity, 5);
-});
-
-test("unknown values use neutral points and lower confidence", () => {
-  const unknown = calculateLeadScore({ name: "Sin datos" }, { now: NOW });
-  const known = calculateLeadScore({
-    name: "Con datos",
-    address: "Terrassa",
-    businessCategories: ["Peluquería"],
+    phone: "+34600000000",
     reviewCount: 40,
-    rating: 4.6,
-    lastReviewAt: "2026-08-20T10:00:00.000Z",
-    websiteStatus: "no_tiene_web",
-    digitalPresenceKnown: true,
-    phone: "+34 612 000 000",
-  }, { now: NOW });
-  assert.ok(unknown.scoreConfidence < known.scoreConfidence);
-  assert.equal(unknown.scoreBreakdown.traction.rating, 3);
+    tags: ["Peluquería"],
+  };
+  const excellent = calculateLeadScore({ ...common, rating: 4.8 });
+  const weak = calculateLeadScore({ ...common, rating: 3.7 });
+  assert.equal(excellent.scoreBreakdown.reputation.model, "WITH_RATING");
+  assert.ok(excellent.leadScore > weak.leadScore);
 });
 
-test("permanently closed business always scores zero", () => {
+test("missing rating activates the alternative model without fake points", () => {
   const result = calculateLeadScore({
-    businessCategories: ["Clínica dental"],
-    reviewCount: 100,
-    rating: 5,
     websiteStatus: "no_tiene_web",
-    phone: "+34 612 000 000",
-    isPermanentlyClosed: true,
-  }, { now: NOW });
-  assert.equal(result.leadScore, 0);
-  assert.equal(result.leadGrade, "D");
+    phone: "+34600000000",
+    reviewCount: 40,
+    tags: ["Peluquería"],
+  });
+  assert.equal(result.scoreBreakdown.reputation.model, "WITHOUT_RATING");
+  assert.equal(result.scoreBreakdown.reputation.rating, null);
+  assert.equal(result.scoreBreakdown.reputation.reviews, 20);
+});
+
+test("arbitrary new tags are recognized with a neutral prior", () => {
+  const context = buildLeadScoringContext([]);
+  const signal = sectorSignalForTags(context, ["Cerámica artesanal espacial"]);
+  assert.equal(signal.points, 8);
+  assert.equal(signal.sampleSize, 0);
+  assert.equal(signal.label, "Cerámica artesanal espacial");
+});
+
+test("tag scoring learns from CRM outcomes without a sector dictionary", () => {
+  const context = buildLeadScoringContext([
+    ...Array.from({ length: 8 }, () => ({ status: "cliente", tags: ["Clínicas premium"] })),
+    ...Array.from({ length: 8 }, () => ({ status: "descartado", tags: ["Baja conversión"] })),
+  ]);
+  const strong = sectorSignalForTags(context, ["Clínicas premium"]);
+  const weak = sectorSignalForTags(context, ["Baja conversión"]);
+  assert.ok(strong.points > weak.points);
+  assert.equal(strong.sampleSize, 8);
+});
+
+test("location uses distance to the portfolio median, not city names", () => {
+  const context = buildLeadScoringContext([
+    { lat: 41.56, lng: 2.01 },
+    { lat: 41.57, lng: 2.02 },
+    { lat: 41.55, lng: 2.03 },
+    { lat: 41.56, lng: 2.04 },
+    { lat: 41.57, lng: 2.03 },
+  ]);
+  const near = calculateLeadScore({ lat: 41.56, lng: 2.02, scoringContext: context });
+  const far = calculateLeadScore({ lat: 40.4, lng: -3.7, scoringContext: context });
+  assert.equal(near.scoreBreakdown.locationFit, 5);
+  assert.equal(far.scoreBreakdown.locationFit, 1);
+  assert.match(near.scoreBreakdown.location, /km del centro operativo/);
+});
+
+test("score is always clamped from zero to one hundred", () => {
+  const high = calculateLeadScore({
+    websiteStatus: "no_tiene_web",
+    instagram: "example",
+    phone: "+34600000000",
+    contactChannel: "whatsapp",
+    rating: 5,
+    reviewCount: 500,
+    sectorSignal: { points: 15, sampleSize: 100, label: "Sector aprendido" },
+  });
+  const low = calculateLeadScore({ rating: 1, reviewCount: 0 });
+  assert.ok(high.leadScore <= 100);
+  assert.ok(low.leadScore >= 0);
 });

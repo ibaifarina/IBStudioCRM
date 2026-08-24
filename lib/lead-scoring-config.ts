@@ -1,226 +1,79 @@
-export const SCORE_VERSION = 1;
+export const SCORE_VERSION = 2;
 
 export const SCORE_LIMITS = {
-  traction: 25,
-  webOpportunity: 25,
+  reputation: 25,
+  webOpportunity: 30,
   digitalMaturity: 15,
-  sectorFit: 20,
+  sectorPerformance: 15,
   contactability: 10,
   locationFit: 5,
 } as const;
 
-export const SCORE_GRADES = [
-  { grade: "A", min: 80, label: "Excelente lead" },
-  { grade: "B", min: 65, label: "Buen lead" },
-  { grade: "C", min: 50, label: "Lead medio" },
-  { grade: "D", min: 0, label: "Baja prioridad" },
-] as const;
-
 export const WEBSITE_DOMAINS = {
   social: [
-    "instagram.com",
-    "facebook.com",
-    "fb.com",
-    "tiktok.com",
-    "x.com",
-    "twitter.com",
-    "youtube.com",
-    "wa.me",
-    "whatsapp.com",
+    "instagram.com", "facebook.com", "fb.com", "tiktok.com", "x.com",
+    "twitter.com", "youtube.com", "wa.me", "whatsapp.com",
   ],
   booking: [
-    "booksy.com",
-    "booksy.es",
-    "treatwell.com",
-    "treatwell.es",
-    "fresha.com",
-    "planity.com",
-    "timify.com",
-    "setmore.com",
-    "calendly.com",
-    "simplybook.me",
+    "booksy.com", "booksy.es", "treatwell.com", "treatwell.es", "fresha.com",
+    "planity.com", "timify.com", "setmore.com", "calendly.com", "simplybook.me",
   ],
   directory: [
-    "linktr.ee",
-    "linktree.com",
-    "doctoralia.es",
-    "doctoralia.com",
-    "google.com",
-    "goo.gl",
-    "business.site",
-    "sites.google.com",
-    "tripadvisor.es",
-    "tripadvisor.com",
-    "yelp.es",
-    "yelp.com",
-    "paginasamarillas.es",
+    "linktr.ee", "linktree.com", "doctoralia.es", "doctoralia.com", "google.com",
+    "goo.gl", "business.site", "sites.google.com", "tripadvisor.es",
+    "tripadvisor.com", "yelp.es", "yelp.com", "paginasamarillas.es",
   ],
 } as const;
 
-export type BusinessProfile =
-  | "HIGH_TICKET"
-  | "APPOINTMENT"
-  | "HIGH_VOLUME"
-  | "GENERAL";
+type ScoreBand = { min: number; points: number };
 
-type ReviewBand = { min: number; points: number };
+// With rating, reviews describe demand and rating describes quality.
+export const REVIEW_BANDS_WITH_RATING: readonly ScoreBand[] = [
+  { min: 150, points: 16 },
+  { min: 75, points: 15 },
+  { min: 40, points: 13 },
+  { min: 20, points: 10 },
+  { min: 10, points: 7 },
+  { min: 5, points: 4 },
+  { min: 1, points: 2 },
+  { min: 0, points: 0 },
+];
 
-export const REVIEW_BANDS: Record<BusinessProfile, readonly ReviewBand[]> = {
-  HIGH_TICKET: [
-    { min: 400, points: 11 },
-    { min: 150, points: 14 },
-    { min: 50, points: 15 },
-    { min: 20, points: 12 },
-    { min: 10, points: 8 },
-    { min: 5, points: 4 },
-    { min: 0, points: 0 },
-  ],
-  APPOINTMENT: [
-    { min: 400, points: 11 },
-    { min: 150, points: 14 },
-    { min: 50, points: 15 },
-    { min: 20, points: 11 },
-    { min: 10, points: 7 },
-    { min: 5, points: 3 },
-    { min: 0, points: 0 },
-  ],
-  HIGH_VOLUME: [
-    { min: 500, points: 13 },
-    { min: 150, points: 15 },
-    { min: 50, points: 10 },
-    { min: 20, points: 6 },
-    { min: 10, points: 3 },
-    { min: 0, points: 0 },
-  ],
-  GENERAL: [
-    { min: 400, points: 12 },
-    { min: 150, points: 14 },
-    { min: 50, points: 15 },
-    { min: 20, points: 10 },
-    { min: 10, points: 6 },
-    { min: 5, points: 3 },
-    { min: 0, points: 0 },
-  ],
-};
+// Alternative model: without rating, review volume occupies the complete
+// reputation component instead of inventing neutral rating points.
+export const REVIEW_BANDS_WITHOUT_RATING: readonly ScoreBand[] = [
+  { min: 150, points: 25 },
+  { min: 75, points: 23 },
+  { min: 40, points: 20 },
+  { min: 20, points: 16 },
+  { min: 10, points: 12 },
+  { min: 5, points: 7 },
+  { min: 1, points: 3 },
+  { min: 0, points: 0 },
+];
 
-type CategoryRule = {
-  tier: "A" | "B" | "C";
-  points: number;
-  profile: BusinessProfile;
-  keywords: readonly string[];
-};
-
-export const BUSINESS_CATEGORY_RULES: readonly CategoryRule[] = [
-  {
-    tier: "A",
-    points: 20,
-    profile: "HIGH_TICKET",
-    keywords: [
-      "medicina estetica", "clinica estetica", "depilacion laser", "laser hair removal",
-      "dentista", "dental", "odontologia", "fisioterapia", "physiotherapy", "podologia",
-      "reformas", "renovation", "electricista", "electrician", "fontaneria", "plumber",
-      "climatizacion", "aire acondicionado", "hvac", "placas solares", "energia solar",
-      "piscinas", "pool contractor", "detailing", "taller especializado", "inmobiliaria",
-      "real estate", "gestoria", "asesoria", "asesoria fiscal", "abogado", "law firm",
-    ],
-  },
-  {
-    tier: "B",
-    points: 15,
-    profile: "APPOINTMENT",
-    keywords: [
-      "peluqueria", "hair salon", "barberia", "barber shop", "unas", "nail salon",
-      "centro de belleza", "beauty salon", "estetica", "tattoo", "tatuaje", "piercing",
-      "veterinario", "veterinary", "autoescuela", "driving school", "crossfit", "pilates",
-      "gimnasio boutique", "boutique gym", "fotografo", "photographer", "academia",
-      "academy", "nutricionista", "nutritionist", "psicologo", "psychologist",
-      "masajista", "massage", "osteopata", "osteopath",
-    ],
-  },
-  {
-    tier: "C",
-    points: 8,
-    profile: "HIGH_VOLUME",
-    keywords: [
-      "restaurante", "restaurant", "cafeteria", "coffee shop", "cafe", "bar",
-      "cocktail bar", "tienda", "retail", "comercio", "boutique", "bakery", "panaderia",
-    ],
-  },
-] as const;
-
-export const UNKNOWN_CATEGORY = {
-  points: 10,
-  profile: "GENERAL" as const,
-  label: "Sector sin clasificar",
-};
-
-export const LOCATION_RULES = [
-  { name: "Terrassa", aliases: ["terrassa"], points: 5 },
-  { name: "Sabadell", aliases: ["sabadell"], points: 5 },
-  { name: "Mataró", aliases: ["mataro"], points: 5 },
-  { name: "Granollers", aliases: ["granollers"], points: 4 },
-  { name: "Rubí", aliases: ["rubi"], points: 4 },
-  { name: "Cerdanyola", aliases: ["cerdanyola"], points: 4 },
-  { name: "Mollet", aliases: ["mollet"], points: 4 },
-  { name: "Sant Cugat", aliases: ["sant cugat"], points: 4 },
-  { name: "Badalona", aliases: ["badalona"], points: 3 },
-  { name: "Sitges", aliases: ["sitges"], points: 3 },
-  { name: "Barcelona", aliases: ["barcelona"], points: 2 },
-] as const;
-
-export const DEFAULT_LOCATION = { name: "Otra zona", points: 2 } as const;
-
-export const SCORE_CONFIDENCE_WEIGHTS = {
-  reviewCount: 14,
-  rating: 14,
-  category: 13,
-  website: 13,
-  social: 10,
-  booking: 8,
-  contact: 12,
-  location: 8,
-  reviewRecency: 8,
-} as const;
-
-export const NEUTRAL_SCORES = {
-  reviews: 7,
-  rating: 3,
-  reviewRecency: 1,
-  unknownWebsite: 12,
-} as const;
-
-export const RATING_BANDS = [
-  { min: 4.7, points: 7 },
-  { min: 4.5, points: 6 },
+export const RATING_BANDS: readonly ScoreBand[] = [
+  { min: 4.8, points: 9 },
+  { min: 4.6, points: 8 },
+  { min: 4.4, points: 6 },
   { min: 4.2, points: 4 },
   { min: 4, points: 2 },
   { min: 0, points: 0 },
-] as const;
-
-export const REVIEW_RECENCY_BANDS = [
-  { maxDays: 30, points: 3 },
-  { maxDays: 90, points: 2 },
-  { maxDays: 365, points: 1 },
-  { maxDays: Number.POSITIVE_INFINITY, points: 0 },
-] as const;
+];
 
 export const WEB_OPPORTUNITY_POINTS = {
-  none: 25,
-  platformOrProfile: 23,
+  none: 30,
+  platformOrProfile: 27,
   ownWebsite: 5,
-  oldWebsite: 15,
-  unknown: 12,
+  oldWebsite: 18,
+  unknown: 15,
 } as const;
 
 export const DIGITAL_MATURITY_POINTS = {
   instagram: 6,
-  facebookWithoutInstagram: 3,
+  facebookWithoutInstagram: 4,
   booking: 5,
   additionalProfile: 2,
-  somePhotos: 1,
-  manyPhotos: 2,
-  somePhotosThreshold: 3,
-  manyPhotosThreshold: 10,
   max: 15,
 } as const;
 
@@ -232,9 +85,44 @@ export const CONTACTABILITY_POINTS = {
   max: 10,
 } as const;
 
+export const LOCATION_DISTANCE_BANDS = [
+  { maxKm: 15, points: 5 },
+  { maxKm: 35, points: 4 },
+  { maxKm: 60, points: 3 },
+  { maxKm: 100, points: 2 },
+  { maxKm: Number.POSITIVE_INFINITY, points: 1 },
+] as const;
+
+export const LOCATION_NEUTRAL_POINTS = 3;
+export const MIN_TERRITORY_SAMPLE = 5;
+
+export const SECTOR_LEARNING = {
+  minPoints: 3,
+  maxPoints: 15,
+  priorRate: 0.45,
+  priorStrength: 6,
+  neutralPoints: 8,
+  statusOutcomes: {
+    contactado: 0.15,
+    respondio: 0.5,
+    interesado: 0.8,
+    cliente: 1,
+    descartado: 0,
+  },
+} as const;
+
+export const SCORE_CONFIDENCE_WEIGHTS = {
+  reviewCount: 18,
+  rating: 20,
+  sectorHistory: 15,
+  website: 15,
+  digital: 10,
+  contact: 12,
+  location: 10,
+} as const;
+
 export const SCORE_PENALTIES = {
-  unvalidated: { points: 10, maxReviewsExclusive: 10 },
-  lowRating: { points: 7, threshold: 4 },
+  unvalidated: { points: 8, maxReviewsExclusive: 5 },
+  lowRating: { points: 10, threshold: 4 },
   noContact: 8,
-  chain: 20,
 } as const;

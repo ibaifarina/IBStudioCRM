@@ -7,7 +7,6 @@ import {
   CheckIcon,
   CopyIcon,
   ExternalLinkIcon,
-  GaugeIcon,
   GlobeIcon,
   HistoryIcon,
   Loader2Icon,
@@ -293,7 +292,6 @@ export function LeadDetailsModal({
           <div className="flex flex-wrap items-center gap-1.5 px-5 py-3.5">
             <LeadScoreBadge
               score={lead.leadScore}
-              grade={lead.leadGrade}
               confidence={lead.scoreConfidence}
               breakdown={lead.scoreBreakdown}
             />
@@ -320,54 +318,6 @@ export function LeadDetailsModal({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
-          <section>
-            <SectionLabel icon={GaugeIcon}>Lead Score</SectionLabel>
-            <div className="rounded-xl border bg-card p-3.5">
-              <div className="flex flex-wrap items-center gap-3">
-                <LeadScoreBadge
-                  score={lead.leadScore}
-                  grade={lead.leadGrade}
-                  confidence={lead.scoreConfidence}
-                  breakdown={lead.scoreBreakdown}
-                  className="min-w-20 py-1.5 text-sm"
-                />
-                <div>
-                  <p className="text-sm font-semibold">
-                    {lead.leadGrade === "A"
-                      ? "Excelente lead"
-                      : lead.leadGrade === "B"
-                        ? "Buen lead"
-                        : lead.leadGrade === "C"
-                          ? "Lead medio"
-                          : "Baja prioridad"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Confianza {lead.scoreConfidence}% · Fórmula v{lead.scoreVersion}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3 grid gap-x-5 gap-y-1.5 border-t pt-3 sm:grid-cols-2">
-                {[...lead.scoreBreakdown.details]
-                  .filter((detail) => detail.points !== 0)
-                  .sort((left, right) => Math.abs(right.points) - Math.abs(left.points))
-                  .slice(0, 8)
-                  .map((detail, index) => (
-                    <div key={`${detail.label}-${index}`} className="flex items-start gap-2 text-xs">
-                      <span className="min-w-0 flex-1 leading-5 text-muted-foreground">
-                        {detail.label}
-                      </span>
-                      <span className={cn(
-                        "shrink-0 font-semibold tabular-nums",
-                        detail.points < 0 ? "text-destructive" : "text-emerald-700 dark:text-emerald-400"
-                      )}>
-                        {detail.points > 0 ? "+" : ""}{detail.points}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </section>
-
           <section>
             <SectionLabel icon={CalendarClockIcon}>Próxima acción</SectionLabel>
             <div className={cn("rounded-xl border p-3.5", overdue ? "border-destructive/25 bg-destructive/[0.04]" : "bg-card")}>
@@ -446,22 +396,6 @@ export function LeadDetailsModal({
 
           <section>
             <div className="mb-2.5 flex items-center justify-between gap-3">
-              <SectionLabel icon={HistoryIcon}>Actividad</SectionLabel>
-              {(lead.hasMoreActivity || allActivities) && (
-                <button type="button" className="text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => {
-                  if (allActivities) { setAllActivities(null); return; }
-                  startTransition(async () => {
-                    const result = await loadLeadActivities(lead.id);
-                    if (Array.isArray(result)) setAllActivities(result);
-                  });
-                }}>{allActivities ? "Ver menos" : "Ver toda la actividad"}</button>
-              )}
-            </div>
-            {activities.length > 0 ? <ActivityList activities={activities} /> : <p className="rounded-xl border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">La actividad aparecerá aquí.</p>}
-          </section>
-
-          <section>
-            <div className="mb-2.5 flex items-center justify-between gap-3">
               <SectionLabel icon={StickyNoteIcon}>Notas</SectionLabel>
               <button type="button" onClick={() => setNoteOpen((value) => !value)} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"><PlusIcon className="size-3" />Añadir nota</button>
             </div>
@@ -482,6 +416,22 @@ export function LeadDetailsModal({
                 </div>
               </div>
             )}
+          </section>
+
+          <section>
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <SectionLabel icon={HistoryIcon}>Actividad</SectionLabel>
+              {(lead.hasMoreActivity || allActivities) && (
+                <button type="button" className="text-xs font-medium text-muted-foreground hover:text-foreground" onClick={() => {
+                  if (allActivities) { setAllActivities(null); return; }
+                  startTransition(async () => {
+                    const result = await loadLeadActivities(lead.id);
+                    if (Array.isArray(result)) setAllActivities(result);
+                  });
+                }}>{allActivities ? "Ver menos" : "Ver toda la actividad"}</button>
+              )}
+            </div>
+            {activities.length > 0 ? <ActivityList activities={activities} /> : <p className="rounded-xl border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">La actividad aparecerá aquí.</p>}
           </section>
         </div>
 

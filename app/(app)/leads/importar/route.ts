@@ -7,7 +7,6 @@ import {
   parseGooglePlacesJson,
 } from "@/lib/google-places-json";
 import { captureLeadChangeSet } from "@/lib/lead-history";
-import { scoreValuesForInput } from "@/lib/lead-scoring-server";
 import { createClient } from "@/lib/supabase/server";
 import { findSimilarTag, normalizeTagName } from "@/lib/tag-similarity";
 
@@ -247,7 +246,7 @@ export async function POST(request: Request) {
     const { data: inserted, error } = await supabase
       .from("leads")
       .insert(
-        batch.map(({ lead, tag }) => ({
+        batch.map(({ lead }) => ({
           user_id: userId,
           name: lead.name,
           instagram: lead.instagram,
@@ -267,19 +266,8 @@ export async function POST(request: Request) {
           business_categories: lead.categories,
           rating: lead.rating,
           review_count: lead.reviewCount,
-          last_review_at: lead.lastReviewAt,
-          photo_count: lead.photoCount,
           social_links: lead.socialLinks,
           digital_presence_known: lead.digitalPresenceKnown,
-          open_status: lead.openStatus,
-          is_permanently_closed: lead.isPermanentlyClosed,
-          ...scoreValuesForInput({
-            ...lead,
-            websiteStatus: lead.websiteStatus,
-            businessCategories: lead.categories,
-            tags: [tag.name],
-            source: "apify",
-          }),
         }))
       )
       .select("id");

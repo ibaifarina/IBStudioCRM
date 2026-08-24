@@ -14,7 +14,12 @@ import {
   todayISO,
 } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
-import { calculateLeadScore, type LeadGrade, type LeadScoreBreakdown } from "@/lib/lead-scoring";
+import { calculateLeadScore } from "@/lib/lead-scoring";
+import {
+  buildLeadScoringContext,
+  sectorSignalForTags,
+  type LeadScoringContext,
+} from "@/lib/lead-scoring-context";
 import type {
   LeadCursor,
   LeadFilters,
@@ -105,19 +110,8 @@ type LeadRow = {
   business_categories?: string[] | null;
   rating?: number | string | null;
   review_count?: number | null;
-  last_review_at?: string | null;
-  photo_count?: number | null;
   social_links?: string[] | null;
   digital_presence_known?: boolean | null;
-  open_status?: string | null;
-  is_permanently_closed?: boolean | null;
-  is_chain?: boolean | null;
-  lead_score?: number | null;
-  lead_grade?: LeadGrade | null;
-  score_breakdown?: unknown;
-  score_confidence?: number | null;
-  score_version?: number | null;
-  scored_at?: string | null;
   created_at: string;
   updated_at: string;
   lead_tags: Array<{ tags: TagRow | TagRow[] | null }>;
@@ -136,6 +130,7 @@ function legacyNextAction(lead: LeadRow, status: LeadWithTags["status"]): NextAc
 
 function mapLeadRow(
   lead: LeadRow,
+  scoringContext: LeadScoringContext,
   hasWebsiteStatusColumn = true
 ): LeadWithTags {
   const status = normalizeLeadStatus(lead.status, lead.statuses);
@@ -149,35 +144,30 @@ function mapLeadRow(
       Array.isArray(link.tags) ? link.tags : link.tags ? [link.tags] : []
     )
     .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const sectorSignal = sectorSignalForTags(scoringContext, [
+    ...tags,
+    ...(lead.business_categories ?? []),
+  ]);
   const fallbackScore = calculateLeadScore({
-    name: lead.name,
     instagram: lead.instagram,
     facebook: lead.facebook,
     website: lead.website,
     websiteStatus: lead.website_status,
     phone: lead.phone,
     email: lead.email,
-    address: lead.address,
+    lat: lead.lat,
+    lng: lead.lng,
     businessCategories: lead.business_categories,
     rating: lead.rating == null ? null : Number(lead.rating),
     reviewCount: lead.review_count,
-    lastReviewAt: lead.last_review_at,
-    photoCount: lead.photo_count,
     socialLinks: lead.social_links,
     digitalPresenceKnown: lead.digital_presence_known,
     contactChannel: lead.contact_channel,
     source: lead.source,
-    openStatus: lead.open_status,
-    isPermanentlyClosed: lead.is_permanently_closed,
-    isChain: lead.is_chain,
     tags,
+    scoringContext,
+    sectorSignal,
   });
-  const storedBreakdown =
-    lead.score_breakdown &&
-    typeof lead.score_breakdown === "object" &&
-    !Array.isArray(lead.score_breakdown)
-      ? (lead.score_breakdown as LeadScoreBreakdown)
-      : fallbackScore.scoreBreakdown;
   return {
     id: lead.id,
     name: lead.name,
@@ -217,19 +207,12 @@ function mapLeadRow(
     businessCategories: lead.business_categories ?? [],
     rating: lead.rating == null ? null : Number(lead.rating),
     reviewCount: lead.review_count ?? null,
-    lastReviewAt: lead.last_review_at ?? null,
-    photoCount: lead.photo_count ?? null,
     socialLinks: lead.social_links ?? [],
     digitalPresenceKnown: lead.digital_presence_known ?? false,
-    openStatus: lead.open_status ?? null,
-    isPermanentlyClosed: lead.is_permanently_closed ?? false,
-    isChain: lead.is_chain ?? false,
-    leadScore: lead.lead_score ?? fallbackScore.leadScore,
-    leadGrade: lead.lead_grade ?? fallbackScore.leadGrade,
-    scoreBreakdown: storedBreakdown,
-    scoreConfidence: lead.score_confidence ?? fallbackScore.scoreConfidence,
-    scoreVersion: lead.score_version ?? fallbackScore.scoreVersion,
-    scoredAt: lead.scored_at ?? fallbackScore.scoredAt,
+    leadScore: fallbackScore.leadScore,
+    scoreBreakdown: fallbackScore.scoreBreakdown,
+    scoreConfidence: fallbackScore.scoreConfidence,
+    scoreVersion: fallbackScore.scoreVersion,
     contactDate: lead.contact_date,
     followUpDate: lead.follow_up_date,
     createdAt: lead.created_at,
@@ -239,6 +222,42 @@ function mapLeadRow(
     tags,
   };
 }
+
+export const getLeadScoringContext = cache(async (): Promise<LeadScoringContext> => {
+  const supabase = await createClient();
+  const rows: Array<{
+    status: string;
+    lat: number | null;
+    lng: number | null;
+    lead_tags: Array<{ tags: { name: string } | { name: string }[] | null }>;
+  }> = [];
+  const batchSize = 1_000;
+  for (let offset = 0; ; offset += batchSize) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select("status, lat, lng, lead_tags ( tags ( name ) )")
+      .order("id", { ascending: true })
+      .range(offset, offset + batchSize - 1);
+    if (error) throw new Error("No se pudo preparar el contexto del Lead Score.", { cause: error });
+    const batch = data as unknown as typeof rows;
+    rows.push(...batch);
+    if (batch.length < batchSize) break;
+  }
+  return buildLeadScoringContext(
+    rows.map((row) => ({
+      status: row.status,
+      lat: row.lat,
+      lng: row.lng,
+      tags: row.lead_tags.flatMap((link) =>
+        Array.isArray(link.tags)
+          ? link.tags.map((tag) => tag.name)
+          : link.tags
+            ? [link.tags.name]
+            : []
+      ),
+    }))
+  );
+});
 
 type ActivityRow = {
   id: number;
@@ -311,12 +330,21 @@ function attachActivities(
 
 export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
   const supabase = await createClient();
+  const scoringContextPromise = getLeadScoringContext();
   const initialResult = await supabase
     .from("leads")
     .select(LEAD_PAGE_COLUMNS)
     .order("updated_at", { ascending: false });
   let data: unknown = initialResult.data;
   let error = initialResult.error;
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    const crmResult = await supabase
+      .from("leads")
+      .select(LEAD_PAGE_CRM_COLUMNS)
+      .order("updated_at", { ascending: false });
+    data = crmResult.data;
+    error = crmResult.error;
+  }
   if (error?.code === "42703" || error?.code === "PGRST204") {
     const legacyResult = await supabase
       .from("leads")
@@ -337,7 +365,8 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
     throw new Error("No se pudieron cargar los leads.", { cause: error });
   }
 
-  return (data as LeadRow[]).map((lead) => mapLeadRow(lead));
+  const scoringContext = await scoringContextPromise;
+  return (data as LeadRow[]).map((lead) => mapLeadRow(lead, scoringContext));
 });
 
 const LEAD_PAGE_COLUMNS = `
@@ -371,19 +400,39 @@ const LEAD_PAGE_COLUMNS = `
   business_categories,
   rating,
   review_count,
-  last_review_at,
-  photo_count,
   social_links,
   digital_presence_known,
-  open_status,
-  is_permanently_closed,
-  is_chain,
-  lead_score,
-  lead_grade,
-  score_breakdown,
-  score_confidence,
-  score_version,
-  scored_at,
+  created_at,
+  updated_at,
+  lead_tags ( tags ( id, name, color ) )
+`;
+
+const LEAD_PAGE_CRM_COLUMNS = `
+  id,
+  name,
+  instagram,
+  website,
+  website_status,
+  phone,
+  address,
+  lat,
+  lng,
+  problem,
+  notes,
+  status,
+  statuses,
+  contact_date,
+  follow_up_date,
+  contacted_at,
+  replied_at,
+  last_contact_at,
+  last_outbound_at,
+  last_inbound_at,
+  contact_channel,
+  next_action,
+  next_action_at,
+  source,
+  google_place_id,
   created_at,
   updated_at,
   lead_tags ( tags ( id, name, color ) )
@@ -417,13 +466,13 @@ function safeSearchTerm(value: string) {
 const LEAD_SORT_CONFIG: Record<
   LeadSortKey,
   {
-    column: "updated_at" | "created_at" | "next_action_at" | "name" | "lead_score";
+    column: "updated_at" | "created_at" | "next_action_at" | "name";
     cursorKey: "updatedAt" | "createdAt" | "nextActionAt" | "name" | "leadScore";
     ascending: boolean;
   }
 > = {
-  score_desc: { column: "lead_score", cursorKey: "leadScore", ascending: false },
-  score_asc: { column: "lead_score", cursorKey: "leadScore", ascending: true },
+  score_desc: { column: "updated_at", cursorKey: "leadScore", ascending: false },
+  score_asc: { column: "updated_at", cursorKey: "leadScore", ascending: true },
   updated_desc: {
     column: "updated_at",
     cursorKey: "updatedAt",
@@ -458,6 +507,37 @@ function postgrestFilterValue(value: string | number) {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+function compareRuntimeScoreRows(
+  left: LeadWithTags,
+  right: LeadWithTags,
+  sort: LeadSortKey
+) {
+  const ascending = sort.endsWith("_asc");
+  const direction = ascending ? 1 : -1;
+  let comparison = 0;
+
+  if (sort.startsWith("score")) {
+    comparison = left.leadScore - right.leadScore;
+  } else if (sort.startsWith("name")) {
+    comparison = left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+  } else if (sort.startsWith("created")) {
+    comparison = left.createdAt.localeCompare(right.createdAt);
+  } else if (sort.startsWith("updated")) {
+    comparison = left.updatedAt.localeCompare(right.updatedAt);
+  } else {
+    const leftDate = left.nextActionAt;
+    const rightDate = right.nextActionAt;
+    if (leftDate == null || rightDate == null) {
+      if (leftDate == null && rightDate != null) return 1;
+      if (leftDate != null && rightDate == null) return -1;
+    } else {
+      comparison = leftDate.localeCompare(rightDate);
+    }
+  }
+
+  return comparison * direction || (left.id - right.id) * direction;
+}
+
 export async function getLeadsPage({
   cursor,
   filters = {},
@@ -468,18 +548,32 @@ export async function getLeadsPage({
   sort?: LeadSortKey;
 } = {}): Promise<LeadPage> {
   const supabase = await createClient();
+  const scoringContextPromise = getLeadScoringContext();
   const search = filters.search ? safeSearchTerm(filters.search) : "";
   const sortConfig = LEAD_SORT_CONFIG[sort];
-  const runQuery = (hasCrmColumns: boolean) => {
-    const baseColumns = hasCrmColumns
-      ? LEAD_PAGE_COLUMNS
-      : LEAD_PAGE_LEGACY_COLUMNS;
+  const runtimeScoreMode =
+    sort.startsWith("score") ||
+    filters.scoreMin != null ||
+    filters.scoreMax != null;
+  const scoreBatchSize = 1_000;
+  type ColumnMode = "signals" | "crm" | "legacy";
+  const runQuery = (columnMode: ColumnMode, offset = 0) => {
+    const hasCrmColumns = columnMode !== "legacy";
+    const baseColumns =
+      columnMode === "signals"
+        ? LEAD_PAGE_COLUMNS
+        : columnMode === "crm"
+          ? LEAD_PAGE_CRM_COLUMNS
+          : LEAD_PAGE_LEGACY_COLUMNS;
     const selectColumns = filters.tagId
       ? `${baseColumns}, filtered_lead_tags:lead_tags!inner(tag_id)`
       : baseColumns;
     let query = supabase
       .from("leads")
-      .select(selectColumns, cursor ? undefined : { count: "exact" });
+      .select(
+        selectColumns,
+        cursor && !runtimeScoreMode ? undefined : { count: "exact" }
+      );
 
     if (filters.status) {
       query = query.eq("status", filters.status);
@@ -506,15 +600,6 @@ export async function getLeadsPage({
     if (filters.websiteStatus) {
       query = query.eq("website_status", filters.websiteStatus);
     }
-    if (filters.leadGrade && hasCrmColumns) {
-      query = query.eq("lead_grade", filters.leadGrade);
-    }
-    if (filters.scoreMin != null && hasCrmColumns) {
-      query = query.gte("lead_score", filters.scoreMin);
-    }
-    if (filters.scoreMax != null && hasCrmColumns) {
-      query = query.lte("lead_score", filters.scoreMax);
-    }
     if (filters.tagId) {
       query = query.eq("filtered_lead_tags.tag_id", filters.tagId);
     }
@@ -530,7 +615,7 @@ export async function getLeadsPage({
           .join(",")
       );
     }
-    if (cursor) {
+    if (cursor && !runtimeScoreMode) {
       const comparison = sortConfig.ascending ? "gt" : "lt";
       const rawCursorValue = cursor[sortConfig.cursorKey];
 
@@ -550,6 +635,12 @@ export async function getLeadsPage({
       }
     }
 
+    if (runtimeScoreMode) {
+      return query
+        .order("id", { ascending: true })
+        .range(offset, offset + scoreBatchSize - 1);
+    }
+
     return query
       .order(sortConfig.column, {
         ascending: sortConfig.ascending,
@@ -559,26 +650,58 @@ export async function getLeadsPage({
       .limit(LEADS_PAGE_SIZE + 1);
   };
 
-  let { data, error, count } = await runQuery(true);
+  let columnMode: ColumnMode = "signals";
+  let { data, error, count } = await runQuery(columnMode);
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    columnMode = "crm";
+    ({ data, error, count } = await runQuery(columnMode));
+  }
   if (error?.code === "42703" || error?.code === "PGRST204") {
     if (
-      filters.nextAction || filters.actionTiming || filters.leadGrade ||
-      filters.scoreMin != null || filters.scoreMax != null ||
-      sort.startsWith("follow_up") || sort.startsWith("score")
+      filters.nextAction || filters.actionTiming || sort.startsWith("follow_up")
     ) {
       throw new Error(
         "Falta aplicar la migración del modelo de próximas acciones.",
         { cause: error }
       );
     }
-    ({ data, error, count } = await runQuery(false));
+    columnMode = "legacy";
+    ({ data, error, count } = await runQuery(columnMode));
   }
 
   if (error) {
     throw new Error("No se pudieron cargar los leads.", { cause: error });
   }
 
-  const rows = (data as unknown as LeadRow[]).map((lead) => mapLeadRow(lead));
+  let rawRows = data as unknown as LeadRow[];
+  if (runtimeScoreMode) {
+    for (let offset = scoreBatchSize; rawRows.length === offset; offset += scoreBatchSize) {
+      const batch = await runQuery(columnMode, offset);
+      if (batch.error) {
+        throw new Error("No se pudieron cargar todos los leads para calcular el score.", {
+          cause: batch.error,
+        });
+      }
+      const batchRows = batch.data as unknown as LeadRow[];
+      rawRows = rawRows.concat(batchRows);
+      if (batchRows.length < scoreBatchSize) break;
+    }
+  }
+
+  const scoringContext = await scoringContextPromise;
+  let rows = rawRows.map((lead) => mapLeadRow(lead, scoringContext));
+  if (runtimeScoreMode) {
+    rows = rows.filter((lead) =>
+      (filters.scoreMin == null || lead.leadScore >= filters.scoreMin) &&
+      (filters.scoreMax == null || lead.leadScore <= filters.scoreMax)
+    );
+    rows.sort((left, right) => compareRuntimeScoreRows(left, right, sort));
+    if (cursor) {
+      const cursorIndex = rows.findIndex((lead) => lead.id === cursor.id);
+      rows = cursorIndex >= 0 ? rows.slice(cursorIndex + 1) : [];
+    }
+  }
+
   const hasMore = rows.length > LEADS_PAGE_SIZE;
   const leads = hasMore ? rows.slice(0, LEADS_PAGE_SIZE) : rows;
   const lastLead = leads.at(-1);
@@ -589,7 +712,7 @@ export async function getLeadsPage({
 
   return {
     leads: attachActivities(leads, activities),
-    total: cursor ? null : (count ?? 0),
+    total: cursor ? null : runtimeScoreMode ? rows.length : (count ?? 0),
     nextCursor:
       hasMore && lastLead
         ? {
@@ -607,11 +730,20 @@ export async function getLeadsPage({
 
 export async function getLeadWithTags(id: number): Promise<LeadWithTags | null> {
   const supabase = await createClient();
+  const scoringContextPromise = getLeadScoringContext();
   let { data, error } = await supabase
     .from("leads")
     .select(LEAD_PAGE_COLUMNS)
     .eq("id", id)
     .maybeSingle();
+
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    ({ data, error } = await supabase
+      .from("leads")
+      .select(LEAD_PAGE_CRM_COLUMNS)
+      .eq("id", id)
+      .maybeSingle());
+  }
 
   if (error?.code === "42703" || error?.code === "PGRST204") {
     ({ data, error } = await supabase
@@ -626,7 +758,8 @@ export async function getLeadWithTags(id: number): Promise<LeadWithTags | null> 
   }
 
   if (!data) return null;
-  const lead = mapLeadRow(data as unknown as LeadRow);
+  const scoringContext = await scoringContextPromise;
+  const lead = mapLeadRow(data as unknown as LeadRow, scoringContext);
   const activities = await getRecentActivitiesByLead([lead.id]);
   return attachActivities([lead], activities)[0];
 }

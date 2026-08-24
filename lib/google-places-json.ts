@@ -26,12 +26,8 @@ export type GooglePlacesLeadDraft = {
   categories: string[];
   rating: number | null;
   reviewCount: number | null;
-  lastReviewAt: string | null;
-  photoCount: number | null;
   socialLinks: string[];
   digitalPresenceKnown: true;
-  openStatus: string | null;
-  isPermanentlyClosed: boolean;
 };
 
 const INSTAGRAM_NON_PROFILE_PATHS = new Set([
@@ -66,13 +62,6 @@ function finiteNumber(value: unknown) {
   return null;
 }
 
-function isoDate(value: unknown) {
-  const cleaned = cleanString(value);
-  if (!cleaned) return null;
-  const timestamp = Date.parse(cleaned);
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
-}
-
 function stringValues(value: unknown): string[] {
   const values = Array.isArray(value)
     ? value
@@ -83,22 +72,6 @@ function stringValues(value: unknown): string[] {
     .flatMap((item) => (Array.isArray(item) ? item : [item]))
     .map((item) => cleanString(item, 2_000))
     .filter((item): item is string => Boolean(item));
-}
-
-function latestReviewDate(value: unknown) {
-  if (!Array.isArray(value)) return null;
-  const dates = value
-    .flatMap((review) => {
-      if (!review || typeof review !== "object" || Array.isArray(review)) return [];
-      const item = review as Record<string, unknown>;
-      return [item.publishedAtDate, item.publishedAt, item.date, item.reviewDate];
-    })
-    .map((item) => cleanString(item))
-    .filter((item): item is string => Boolean(item && !Number.isNaN(Date.parse(item))))
-    .map((item) => new Date(item).toISOString())
-    .sort()
-    .reverse();
-  return dates[0] ?? null;
 }
 
 function parseUrl(value: string) {
@@ -313,23 +286,11 @@ export function parseGooglePlacesJson(text: string): GooglePlacesLeadDraft[] {
         matchesDomain(normalizedHostname(value), domain)
       )
     ) ?? null;
-    const imageValues = stringValues(record.imageUrls);
-    const explicitPhotoCount =
-      finiteNumber(record.imagesCount) ??
-      finiteNumber(record.photosCount) ??
-      finiteNumber(record.imageCount);
     const reviewCount =
       finiteNumber(record.reviewsCount) ??
       finiteNumber(record.reviewCount) ??
       finiteNumber(record.userRatingsTotal);
     const rating = finiteNumber(record.totalScore) ?? finiteNumber(record.rating);
-    const rawOpenStatus =
-      cleanString(record.openStatus) ?? cleanString(record.placeStatus);
-    const isPermanentlyClosed =
-      record.permanentlyClosed === true ||
-      record.isPermanentlyClosed === true ||
-      /permanently.closed|cerrado permanentemente|tancat permanentment/i.test(rawOpenStatus ?? "");
-
     return {
       sourceIndex,
       placeId: cleanString(record.placeId),
@@ -346,18 +307,8 @@ export function parseGooglePlacesJson(text: string): GooglePlacesLeadDraft[] {
       categories,
       rating: rating != null && rating >= 0 && rating <= 5 ? rating : null,
       reviewCount: reviewCount != null && reviewCount >= 0 ? Math.round(reviewCount) : null,
-      lastReviewAt:
-        latestReviewDate(record.reviews) ??
-        isoDate(record.lastReviewAt) ??
-        isoDate(record.lastReviewDate),
-      photoCount:
-        explicitPhotoCount != null && explicitPhotoCount >= 0
-          ? Math.round(explicitPhotoCount)
-          : imageValues.length || null,
       socialLinks: [...new Set(socialLinks)],
       digitalPresenceKnown: true,
-      openStatus: rawOpenStatus,
-      isPermanentlyClosed,
     };
   });
 }

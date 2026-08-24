@@ -12,6 +12,8 @@ import { endOfDay, format, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { useRouter } from "next/navigation";
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
   ArrowUpDownIcon,
   AtSignIcon,
   CalendarDaysIcon,
@@ -71,6 +73,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -86,6 +89,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { deleteLead } from "@/lib/actions";
 import {
   LEAD_SORTS,
@@ -114,8 +123,6 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { instagramUrl, mapsUrl } from "@/lib/lead-links";
-import { SCORE_GRADES } from "@/lib/lead-scoring-config";
-import type { LeadGrade } from "@/lib/lead-scoring";
 
 async function copyText(value: string) {
   if (navigator.clipboard?.writeText) {
@@ -139,6 +146,88 @@ function FilterMenuValue({ children }: { children?: string }) {
     <span className="ml-auto max-w-32 truncate text-right text-xs font-normal text-muted-foreground">
       {children}
     </span>
+  );
+}
+
+function SortableTableHead({
+  label,
+  sort,
+  ascendingSort,
+  descendingSort,
+  onSort,
+  className,
+}: {
+  label: string;
+  sort: LeadSort;
+  ascendingSort?: LeadSort;
+  descendingSort: LeadSort;
+  onSort: (sort: LeadSort) => void;
+  className?: string;
+}) {
+  const isAscending = ascendingSort != null && sort === ascendingSort;
+  const isDescending = sort === descendingSort;
+  const isActive = isAscending || isDescending;
+  const nextSort = isAscending ? descendingSort : (ascendingSort ?? descendingSort);
+  const direction = isAscending ? "ascendente" : "descendente";
+  const nextDirection = isAscending ? "descendente" : ascendingSort ? "ascendente" : null;
+
+  return (
+    <TableHead
+      className={cn(
+        "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
+        className
+      )}
+      aria-sort={isAscending ? "ascending" : isDescending ? "descending" : undefined}
+    >
+      <TooltipProvider delay={350}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={() => onSort(nextSort)}
+                className={cn(
+                  "group/sort -ml-2 inline-flex h-8 cursor-pointer items-center gap-1 rounded-md px-2 outline-none transition-colors",
+                  "hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+                  isActive && "bg-brand/[0.07] text-brand hover:bg-brand/10 hover:text-brand dark:bg-brand/10"
+                )}
+                aria-label={
+                  isActive
+                    ? `Orden actual por ${label}, ${direction}${nextDirection ? `. Cambiar a orden ${nextDirection}` : ""}`
+                    : `Ordenar por ${label}`
+                }
+              />
+            }
+          >
+            <span>{label}</span>
+            <span
+              className={cn(
+                "grid size-5 place-items-center rounded-sm transition-all",
+                isActive
+                  ? "bg-brand/10 text-brand"
+                  : "text-muted-foreground/45 group-hover/sort:bg-background group-hover/sort:text-foreground group-focus-visible/sort:text-foreground"
+              )}
+              aria-hidden
+            >
+              {isAscending ? (
+                <ArrowUpIcon className="size-3.5" strokeWidth={2.25} />
+              ) : isDescending ? (
+                <ArrowDownIcon className="size-3.5" strokeWidth={2.25} />
+              ) : (
+                <ArrowUpDownIcon className="size-3.5" strokeWidth={2} />
+              )}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6}>
+            {isActive
+              ? nextDirection
+                ? `Orden ${direction} · Cambiar a ${nextDirection}`
+                : `Orden ${direction}`
+              : `Ordenar por ${label}`}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </TableHead>
   );
 }
 
@@ -283,7 +372,6 @@ export function LeadsView({
   );
   const [websiteStatusFilter, setWebsiteStatusFilter] =
     useState<string>("all");
-  const [gradeFilter, setGradeFilter] = useState<LeadGrade | "all">("all");
   const [scoreMinFilter, setScoreMinFilter] = useState<number | "all">("all");
   const [tagFilter, setTagFilter] = useState<number | "all">("all");
   const [addedDateFilter, setAddedDateFilter] = useState<DateRange>();
@@ -355,7 +443,6 @@ export function LeadsView({
         websiteStatusFilter === "all"
           ? undefined
           : (websiteStatusFilter as LeadFilters["websiteStatus"]),
-      leadGrade: gradeFilter === "all" ? undefined : gradeFilter,
       scoreMin: scoreMinFilter === "all" ? undefined : scoreMinFilter,
       tagId: tagFilter === "all" ? undefined : tagFilter,
       createdFrom: from ? startOfDay(from).toISOString() : undefined,
@@ -364,7 +451,6 @@ export function LeadsView({
   }, [
     addedDateFilter,
     actionTiming,
-    gradeFilter,
     nextActionFilter,
     search,
     statusFilter,
@@ -559,7 +645,6 @@ export function LeadsView({
     nextActionFilter !== "all",
     actionTiming !== "all",
     websiteStatusFilter !== "all",
-    gradeFilter !== "all",
     scoreMinFilter !== "all",
     tagFilter !== "all",
     Boolean(addedDateFilter?.from),
@@ -647,12 +732,10 @@ export function LeadsView({
           (!updatedLead.nextActionAt ||
             isNextActionOverdue(updatedLead.nextAction, updatedLead.nextActionAt) ||
             isNextActionToday(updatedLead.nextAction, updatedLead.nextActionAt)));
-    const matchesGrade =
-      gradeFilter === "all" || updatedLead.leadGrade === gradeFilter;
     const matchesScore =
       scoreMinFilter === "all" || updatedLead.leadScore >= scoreMinFilter;
     const remainsVisible =
-      matchesStatus && matchesAction && matchesTiming && matchesGrade && matchesScore;
+      matchesStatus && matchesAction && matchesTiming && matchesScore;
     const wasVisible = leads.some((lead) => lead.id === updatedLead.id);
     setLeads((current) =>
       remainsVisible
@@ -675,7 +758,7 @@ export function LeadsView({
     setEditing((current) =>
       current?.id === updatedLead.id ? updatedLead : current
     );
-  }, [actionTiming, gradeFilter, initialOpenLead, leads, nextActionFilter, scoreMinFilter, statusFilter]);
+  }, [actionTiming, initialOpenLead, leads, nextActionFilter, scoreMinFilter, statusFilter]);
 
   const removeLead = useCallback((leadId: number) => {
     setLeads((current) => current.filter((lead) => lead.id !== leadId));
@@ -693,7 +776,6 @@ export function LeadsView({
     setNextActionFilter("all");
     setActionTiming("all");
     setWebsiteStatusFilter("all");
-    setGradeFilter("all");
     setScoreMinFilter("all");
     setTagFilter("all");
     setAddedDateFilter(undefined);
@@ -778,20 +860,24 @@ export function LeadsView({
                   size="lg"
                   className={cn(
                     "gap-1.5",
-                    sort !== "updated_desc" &&
+                    sort.startsWith("created_") &&
                       "border-brand/30 bg-brand/[0.06] text-brand hover:bg-brand/10 hover:text-brand dark:border-brand/40 dark:bg-brand/10"
                   )}
                 >
                   <ArrowUpDownIcon className="size-3.5" />
-                  Ordenar
+                  {sort.startsWith("created_") ? "Fecha de alta" : "Ordenar"}
                 </Button>
               }
             />
-            <DropdownMenuContent align="start" className="w-72">
-              {LEAD_SORTS.map((item) => (
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuLabel className="px-2 pt-1.5 pb-1">
+                Fecha de alta
+              </DropdownMenuLabel>
+              {LEAD_SORTS.filter((item) => item.value.startsWith("created_")).map((item) => (
                 <DropdownMenuItem
                   key={item.value}
                   onClick={() => setSort(item.value)}
+                  className="py-1.5"
                 >
                   <CheckIcon
                     className={cn(sort !== item.value && "opacity-0")}
@@ -799,7 +885,7 @@ export function LeadsView({
                   {item.label}
                 </DropdownMenuItem>
               ))}
-              {sort !== "updated_desc" && (
+              {sort.startsWith("created_") && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setSort("updated_desc")}>
@@ -868,36 +954,19 @@ export function LeadsView({
                   <GaugeIcon />
                   <span>Lead Score</span>
                   <FilterMenuValue>
-                    {gradeFilter !== "all"
-                      ? `Grado ${gradeFilter}`
-                      : scoreMinFilter !== "all"
-                        ? `${scoreMinFilter}+`
-                        : "Todos"}
+                    {scoreMinFilter !== "all" ? `${scoreMinFilter}+` : "Todos"}
                   </FilterMenuValue>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-56">
-                  <DropdownMenuItem onClick={() => { setGradeFilter("all"); setScoreMinFilter("all"); }}>
-                    <CheckIcon className={cn((gradeFilter !== "all" || scoreMinFilter !== "all") && "opacity-0")} />
+                  <DropdownMenuItem onClick={() => setScoreMinFilter("all")}>
+                    <CheckIcon className={cn(scoreMinFilter !== "all" && "opacity-0")} />
                     Todos los scores
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  {SCORE_GRADES.map((item) => (
-                    <DropdownMenuItem
-                      key={item.grade}
-                      onClick={() => { setGradeFilter(item.grade); setScoreMinFilter("all"); }}
-                    >
-                      <span className="grid size-5 place-items-center rounded-md border text-[11px] font-semibold">
-                        {item.grade}
-                      </span>
-                      <span className="flex-1">{item.label}</span>
-                      {gradeFilter === item.grade && <CheckIcon />}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  {[80, 65, 50].map((minimum) => (
+                  {[80, 60, 40].map((minimum) => (
                     <DropdownMenuItem
                       key={minimum}
-                      onClick={() => { setScoreMinFilter(minimum); setGradeFilter("all"); }}
+                      onClick={() => setScoreMinFilter(minimum)}
                     >
                       <CheckIcon className={cn(scoreMinFilter !== minimum && "opacity-0")} />
                       Puntuación {minimum} o más
@@ -1096,12 +1165,6 @@ export function LeadsView({
                 {STATUSES.find((s) => s.value === statusFilter)?.label}
               </FilterChip>
             )}
-            {gradeFilter !== "all" && (
-              <FilterChip onRemove={() => setGradeFilter("all")}>
-                <GaugeIcon className="size-3 text-muted-foreground" />
-                Grado {gradeFilter}
-              </FilterChip>
-            )}
             {scoreMinFilter !== "all" && (
               <FilterChip onRemove={() => setScoreMinFilter("all")}>
                 <GaugeIcon className="size-3 text-muted-foreground" />
@@ -1223,29 +1286,43 @@ export function LeadsView({
                   />
                 </TableHead>
               )}
-              <TableHead
-                className={cn(
-                  "w-[19%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
-                  selectionMode ? undefined : "pl-5"
-                )}
-              >
-                Negocio
-              </TableHead>
-              <TableHead className="w-[10%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                Score
-              </TableHead>
+              <SortableTableHead
+                label="Negocio"
+                sort={sort}
+                ascendingSort="name_asc"
+                descendingSort="name_desc"
+                onSort={setSort}
+                className={cn("w-[19%]", !selectionMode && "pl-5")}
+              />
+              <SortableTableHead
+                label="Score"
+                sort={sort}
+                ascendingSort="score_asc"
+                descendingSort="score_desc"
+                onSort={setSort}
+                className="w-[10%]"
+              />
               <TableHead className="hidden w-[12%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase md:table-cell">
                 Canales
               </TableHead>
               <TableHead className="w-[15%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Estado
               </TableHead>
-              <TableHead className="hidden w-[20%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
-                Última actividad
-              </TableHead>
-              <TableHead className="w-[20%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                Próxima acción
-              </TableHead>
+              <SortableTableHead
+                label="Última actividad"
+                sort={sort}
+                descendingSort="updated_desc"
+                onSort={setSort}
+                className="hidden w-[20%] lg:table-cell"
+              />
+              <SortableTableHead
+                label="Próxima acción"
+                sort={sort}
+                ascendingSort="follow_up_asc"
+                descendingSort="follow_up_desc"
+                onSort={setSort}
+                className="w-[20%]"
+              />
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -1385,7 +1462,6 @@ export function LeadsView({
                   <TableCell onClick={(event) => event.stopPropagation()}>
                     <LeadScoreBadge
                       score={lead.leadScore}
-                      grade={lead.leadGrade}
                       confidence={lead.scoreConfidence}
                       breakdown={lead.scoreBreakdown}
                     />
