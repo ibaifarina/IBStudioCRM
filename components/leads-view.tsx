@@ -72,6 +72,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -870,28 +871,32 @@ export function LeadsView({
               }
             />
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="px-2 pt-1.5 pb-1">
-                Fecha de alta
-              </DropdownMenuLabel>
-              {LEAD_SORTS.filter((item) => item.value.startsWith("created_")).map((item) => (
-                <DropdownMenuItem
-                  key={item.value}
-                  onClick={() => setSort(item.value)}
-                  className="py-1.5"
-                >
-                  <CheckIcon
-                    className={cn(sort !== item.value && "opacity-0")}
-                  />
-                  {item.label}
-                </DropdownMenuItem>
-              ))}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="px-2 pt-1.5 pb-1">
+                  Fecha de alta
+                </DropdownMenuLabel>
+                {LEAD_SORTS.filter((item) => item.value.startsWith("created_")).map((item) => (
+                  <DropdownMenuItem
+                    key={item.value}
+                    onClick={() => setSort(item.value)}
+                    className="py-1.5"
+                  >
+                    <CheckIcon
+                      className={cn(sort !== item.value && "opacity-0")}
+                    />
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
               {sort.startsWith("created_") && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSort("updated_desc")}>
-                    <RotateCcwIcon />
-                    Orden predeterminado
-                  </DropdownMenuItem>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onClick={() => setSort("updated_desc")}>
+                      <RotateCcwIcon />
+                      Orden predeterminado
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
                 </>
               )}
             </DropdownMenuContent>
