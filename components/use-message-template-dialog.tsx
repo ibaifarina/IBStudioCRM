@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   AtSignIcon,
   CheckIcon,
@@ -61,6 +61,7 @@ export function UseMessageTemplateDialog({
         : "instagram"
   );
   const [pending, startTransition] = useTransition();
+  const contactRequestRef = useRef(false);
   const selected =
     templates.find((template) => template.id === selectedId) ?? firstTemplate;
 
@@ -142,14 +143,24 @@ export function UseMessageTemplateDialog({
                   Abrir o copiar no marca el mensaje como enviado. Registra el contacto solo cuando realmente lo hayas hecho.
                 </p>
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   disabled={pending || (channel === "whatsapp" ? !lead.phone : !lead.instagram)}
                   onClick={() => startTransition(async () => {
-                    const result = await markLeadContacted(lead.id, channel);
-                    if ("error" in result) { toast.error(result.error); return; }
-                    onLeadUpdated?.(result);
-                    toast.success("Contacto registrado");
+                    if (contactRequestRef.current) return;
+                    contactRequestRef.current = true;
+                    try {
+                      const result = await markLeadContacted(lead.id, channel);
+                      if ("error" in result) {
+                        toast.error(result.error);
+                        return;
+                      }
+                      onLeadUpdated?.(result);
+                      toast.success("Contacto registrado");
+                    } finally {
+                      contactRequestRef.current = false;
+                    }
                   })}
                 >
                   {pending ? <Loader2Icon className="animate-spin" /> : <CheckIcon />}
@@ -159,7 +170,12 @@ export function UseMessageTemplateDialog({
             </div>
 
             <div className="border-t pt-4">
-              <Button variant="outline" size="sm" render={<Link href="/plantillas" />}>
+              <Button
+                nativeButton={false}
+                variant="outline"
+                size="sm"
+                render={<Link href="/plantillas" />}
+              >
                 <FileTextIcon />
                 Gestionar plantillas
               </Button>
@@ -174,7 +190,12 @@ export function UseMessageTemplateDialog({
             <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
               Crea una y usa variables como [nombre] para personalizar cada mensaje.
             </p>
-            <Button className="mt-4" size="sm" render={<Link href="/plantillas" />}>
+            <Button
+              nativeButton={false}
+              className="mt-4"
+              size="sm"
+              render={<Link href="/plantillas" />}
+            >
               <PlusIcon />
               Crear plantilla
             </Button>

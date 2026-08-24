@@ -265,6 +265,7 @@ export function LeadsView({
   const [leads, setLeads] = useState(initialPage.leads);
   const [total, setTotal] = useState(initialPage.total ?? initialPage.leads.length);
   const [nextCursor, setNextCursor] = useState(initialPage.nextCursor);
+  const initialPageRef = useRef(initialPage);
   const [isFiltering, setIsFiltering] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -325,6 +326,10 @@ export function LeadsView({
     };
   }, []);
 
+  useEffect(() => {
+    initialPageRef.current = initialPage;
+  }, [initialPage]);
+
   // Sincroniza ?open=<id> de la URL (p. ej. al llegar desde la paleta ⌘K).
   const [prevInitial, setPrevInitial] = useState(initialOpenId);
   if (initialOpenId !== prevInitial) {
@@ -373,9 +378,10 @@ export function LeadsView({
     const timeout = window.setTimeout(
       () => {
         if (isDefaultQuery && initialQueryIsDefault) {
-          setLeads(initialPage.leads);
-          setTotal(initialPage.total ?? initialPage.leads.length);
-          setNextCursor(initialPage.nextCursor);
+          const defaultPage = initialPageRef.current;
+          setLeads(defaultPage.leads);
+          setTotal(defaultPage.total ?? defaultPage.leads.length);
+          setNextCursor(defaultPage.nextCursor);
           setIsFiltering(false);
           return;
         }
@@ -408,7 +414,7 @@ export function LeadsView({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [filters, initialPage, initialQueryIsDefault, isDefaultQuery, search, sort]);
+  }, [filters, initialQueryIsDefault, isDefaultQuery, search, sort]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || isLoadingMore || isFiltering) return;
@@ -1145,7 +1151,7 @@ export function LeadsView({
               )}
               <TableHead
                 className={cn(
-                  "w-[18%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
+                  "w-[22%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
                   selectionMode ? undefined : "pl-5"
                 )}
               >
@@ -1157,10 +1163,10 @@ export function LeadsView({
               <TableHead className="w-[16%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Estado
               </TableHead>
-              <TableHead className="hidden w-[24%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
+              <TableHead className="hidden w-[22%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
                 Última actividad
               </TableHead>
-              <TableHead className="w-[24%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              <TableHead className="w-[22%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Próxima acción
               </TableHead>
               <TableHead className="w-10" />
@@ -1256,7 +1262,7 @@ export function LeadsView({
                   )}
                   <TableCell
                     className={cn(
-                      "w-[18%] max-w-0 overflow-hidden py-3",
+                      "w-[22%] max-w-0 overflow-hidden py-3",
                       !selectionMode && "pl-5"
                     )}
                   >
@@ -1413,7 +1419,7 @@ export function LeadsView({
       </div>
 
       <LeadDetailsModal
-        key={openLead?.id ?? "closed-lead"}
+        key={openLead ? `lead-details-${openLead.id}` : "closed-lead-details"}
         lead={openLead ?? null}
         onClose={closeSheet}
         onEdit={(lead) => setEditing(lead)}
@@ -1424,15 +1430,12 @@ export function LeadsView({
 
       {messageLead && (
         <UseMessageTemplateDialog
-          key={messageLead.id}
+          key={`lead-message-${messageLead.id}`}
           lead={messageLead}
           templates={templates}
           open
           onOpenChange={(open) => !open && setMessageLead(null)}
-          onLeadUpdated={(updatedLead) => {
-            updateLead(updatedLead);
-            setMessageLead(updatedLead);
-          }}
+          onLeadUpdated={updateLead}
         />
       )}
 

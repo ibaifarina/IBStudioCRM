@@ -431,7 +431,6 @@ export function LeadDetailsModal({
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Más acciones" />}><MoreHorizontalIcon /></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={() => onEdit(lead)}><PencilIcon />Editar</DropdownMenuItem>
                 {lead.status !== "descartado" && (
                   <DropdownMenuItem onClick={() => startTransition(async () => {
                     const result = await setLeadStatus(lead.id, "descartado");

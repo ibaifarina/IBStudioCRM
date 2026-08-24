@@ -34,51 +34,83 @@ const tagChartConfig = {
 } satisfies ChartConfig;
 
 export function ConversionFunnel({ data }: { data: FunnelDatum[] }) {
-  const stageWidths = [100, 86, 72, 58, 44];
+  const total = data[0]?.value ?? 0;
+  const clients = data.at(-1)?.value ?? 0;
+  const overallRate = total > 0 ? Math.round((clients / total) * 100) : 0;
 
   return (
-    <div className="flex h-56 w-full items-center gap-3 sm:gap-5">
+    <div className="flex min-h-56 w-full flex-col justify-center">
+      <div className="mb-4 flex items-end justify-between border-b border-border/70 pb-3">
+        <div>
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+            Resultado del recorrido
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground tabular-nums">
+              {clients.toLocaleString("es-ES")}
+            </span>{" "}
+            {clients === 1 ? "cliente" : "clientes"} de{" "}
+            {total.toLocaleString("es-ES")} leads
+          </p>
+        </div>
+        <div className="text-right">
+          <span className="text-2xl font-semibold tracking-tight tabular-nums">
+            {overallRate}%
+          </span>
+          <p className="text-[10px] text-muted-foreground">conversión total</p>
+        </div>
+      </div>
+
       <div
-        className="flex min-w-0 flex-1 flex-col items-center"
+        className="relative grid gap-2.5 before:absolute before:top-3 before:bottom-3 before:left-[5px] before:w-px before:bg-border"
         role="list"
         aria-label="Etapas del embudo de conversión"
       >
         {data.map((step, index) => {
-          const width = stageWidths[index] ?? 44;
-          const nextWidth = stageWidths[index + 1] ?? 28;
-          const inset = ((width - nextWidth) / width / 2) * 100;
+          const shareOfTotal = total > 0 ? (step.value / total) * 100 : 0;
 
           return (
             <div
               key={step.key}
               role="listitem"
               aria-label={`${step.label}: ${step.value}${step.rate == null ? "" : `, ${step.rate}% de conversión`}`}
-              className="flex h-10 items-center justify-center px-4 text-white drop-shadow-sm transition-[width] duration-500 first:rounded-t-sm"
-              style={{
-                width: `${width}%`,
-                backgroundColor: step.color,
-                clipPath: `polygon(0 0, 100% 0, ${100 - inset}% 100%, ${inset}% 100%)`,
-              }}
+              className="relative grid grid-cols-[minmax(6.75rem,0.85fr)_minmax(4.5rem,1.4fr)_2.25rem] items-center gap-3"
             >
-              <span className="truncate text-xs font-medium">{step.label}</span>
-              <span className="ml-2 text-sm font-bold tabular-nums">{step.value}</span>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="relative z-10 size-[11px] shrink-0 rounded-full border-2 border-card shadow-[0_0_0_1px_var(--border)]"
+                  style={{ backgroundColor: step.color }}
+                />
+                <span className="truncate text-xs font-medium">{step.label}</span>
+              </div>
+
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+                    style={{
+                      width: `${shareOfTotal}%`,
+                      minWidth: step.value > 0 ? "5px" : 0,
+                      backgroundColor: step.color,
+                    }}
+                  />
+                </div>
+                <span className="w-9 shrink-0 text-right text-[10px] font-medium text-muted-foreground tabular-nums">
+                  {index === 0 ? "100%" : `${step.rate ?? 0}%`}
+                </span>
+              </div>
+
+              <span className="text-right text-sm font-semibold tabular-nums">
+                {step.value.toLocaleString("es-ES")}
+              </span>
             </div>
           );
         })}
       </div>
 
-      <div className="grid h-50 w-20 shrink-0 grid-rows-5 sm:w-24" aria-hidden="true">
-        {data.map((step) => (
-          <div key={step.key} className="flex flex-col justify-center border-b border-border/60 last:border-0">
-            <span className="text-[10px] leading-none text-muted-foreground">
-              {step.rate == null ? "Entrada" : "Conversión"}
-            </span>
-            <span className="mt-1 text-xs font-semibold tabular-nums">
-              {step.rate == null ? "100%" : `${step.rate}%`}
-            </span>
-          </div>
-        ))}
-      </div>
+      <p className="mt-3 text-right text-[10px] text-muted-foreground">
+        % respecto a la etapa anterior
+      </p>
     </div>
   );
 }

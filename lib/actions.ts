@@ -90,6 +90,11 @@ function revalidateCrm() {
   revalidatePath("/", "layout");
 }
 
+function revalidateCrmViews() {
+  revalidatePath("/");
+  revalidatePath("/mapa");
+}
+
 async function getAuthenticatedClient() {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
@@ -632,7 +637,7 @@ export async function setLeadStatus(
     return { error: "No se pudo cambiar el estado." };
   }
 
-  revalidateCrm();
+  revalidateCrmViews();
   return {
     status,
     statuses: [status],
@@ -704,7 +709,7 @@ export async function setLeadNextAction(
     return { error: "No se pudo cambiar la próxima acción." };
   }
 
-  revalidateCrm();
+  revalidateCrmViews();
   return { nextAction: action, nextActionAt };
 }
 
@@ -758,7 +763,7 @@ export async function addLeadNote(
     return { error: "La nota se guardó, pero no se pudo registrar la actividad." };
   }
 
-  revalidateCrm();
+  revalidateCrmViews();
   return {
     notes,
     activity: {
@@ -829,7 +834,7 @@ export async function markLeadContacted(
     .eq("id", id);
   if (error) return { error: "No se pudo registrar el contacto." };
 
-  revalidateCrm();
+  revalidateCrmViews();
   const saved = await getLeadWithTags(id);
   return saved ?? { error: "No se pudo actualizar la ficha del lead." };
 }
