@@ -5,6 +5,7 @@ import {
   AtSignIcon,
   CalendarClockIcon,
   CheckIcon,
+  CopyIcon,
   ExternalLinkIcon,
   GlobeIcon,
   HistoryIcon,
@@ -40,6 +41,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { WebsiteStatusBadge } from "@/components/website-status-badge";
 import {
   addLeadNote,
@@ -63,7 +70,7 @@ import {
   todayISO,
 } from "@/lib/dates";
 import { leadActivityLabel } from "@/lib/lead-activity";
-import { instagramUrl, mapsUrl, whatsappUrl } from "@/lib/lead-links";
+import { instagramUrl, mapsUrl } from "@/lib/lead-links";
 import type { LeadActivity, LeadWithTags } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -96,6 +103,8 @@ function ChannelTile({
   href,
   value,
   tel,
+  onCopy,
+  copied,
 }: {
   label: string;
   icon: LucideIcon;
@@ -103,6 +112,8 @@ function ChannelTile({
   href?: string;
   value?: string | null;
   tel?: boolean;
+  onCopy?: () => void;
+  copied?: boolean;
 }) {
   const empty = !value;
   const body = (
@@ -118,7 +129,15 @@ function ChannelTile({
           {value ?? "Sin dato"}
         </span>
       </span>
-      {!empty && !tel && <ExternalLinkIcon className="size-3.5 text-muted-foreground/40" />}
+      {!empty && onCopy ? (
+        copied ? (
+          <CheckIcon className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+        ) : (
+          <CopyIcon className="size-3.5 text-muted-foreground/50 transition-colors group-hover:text-foreground" />
+        )
+      ) : !empty && !tel ? (
+        <ExternalLinkIcon className="size-3.5 text-muted-foreground/40" />
+      ) : null}
     </>
   );
   const className = cn(
@@ -127,6 +146,25 @@ function ChannelTile({
   );
   return empty ? (
     <div className={className}>{body}</div>
+  ) : onCopy ? (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className={className}
+              onClick={onCopy}
+              aria-label="Copiar número de WhatsApp"
+              title={copied ? "Número copiado" : "Copiar número"}
+            />
+          }
+        >
+          {body}
+        </TooltipTrigger>
+        <TooltipContent>{copied ? "Número copiado" : "Copiar número"}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   ) : (
     <a
       href={href}
@@ -189,6 +227,7 @@ export function LeadDetailsModal({
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [allActivities, setAllActivities] = useState<LeadActivity[] | null>(null);
+  const [whatsappCopied, setWhatsappCopied] = useState(false);
   const [pending, startTransition] = useTransition();
 
   if (!lead) return null;
@@ -215,6 +254,24 @@ export function LeadDetailsModal({
         followUpDate: result.nextActionAt?.slice(0, 10) ?? null,
       });
     });
+  };
+
+  const copyWhatsappNumber = async () => {
+    if (!lead.phone) return;
+    try {
+      await navigator.clipboard.writeText(lead.phone);
+      setWhatsappCopied(true);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = lead.phone;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      if (copied) setWhatsappCopied(true);
+    }
   };
 
   return (
@@ -293,7 +350,14 @@ export function LeadDetailsModal({
               <ChannelTile label="Instagram" icon={AtSignIcon} tone={TONES.instagram} href={lead.instagram ? instagramUrl(lead.instagram) : undefined} value={lead.instagram ? `@${lead.instagram}` : null} />
               <ChannelTile label="Web" icon={GlobeIcon} tone={TONES.web} href={lead.website ?? undefined} value={lead.website} />
               <ChannelTile label="Teléfono" icon={PhoneIcon} tone={TONES.phone} href={lead.phone ? `tel:${lead.phone}` : undefined} value={lead.phone} tel />
-              <ChannelTile label="WhatsApp" icon={MessageCircleIcon} tone={TONES.whatsapp} href={lead.phone ? whatsappUrl(lead.phone) : undefined} value={lead.phone} />
+              <ChannelTile
+                label="WhatsApp"
+                icon={MessageCircleIcon}
+                tone={TONES.whatsapp}
+                value={lead.phone}
+                onCopy={() => void copyWhatsappNumber()}
+                copied={whatsappCopied}
+              />
             </div>
           </section>
 

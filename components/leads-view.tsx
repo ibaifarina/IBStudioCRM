@@ -360,6 +360,7 @@ export function LeadsView({
 
   const hasFilters = Object.values(filters).some(Boolean);
   const isDefaultQuery = !hasFilters && sort === "updated_desc";
+  const initialQueryIsDefault = !initialNextAction && !initialActionTiming;
   const queryKey = JSON.stringify({ filters, sort });
   const activeQueryKey = useRef(queryKey);
 
@@ -371,7 +372,7 @@ export function LeadsView({
     let cancelled = false;
     const timeout = window.setTimeout(
       () => {
-        if (isDefaultQuery) {
+        if (isDefaultQuery && initialQueryIsDefault) {
           setLeads(initialPage.leads);
           setTotal(initialPage.total ?? initialPage.leads.length);
           setNextCursor(initialPage.nextCursor);
@@ -407,7 +408,7 @@ export function LeadsView({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [filters, initialPage, isDefaultQuery, search, sort]);
+  }, [filters, initialPage, initialQueryIsDefault, isDefaultQuery, search, sort]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || isLoadingMore || isFiltering) return;
@@ -672,6 +673,13 @@ export function LeadsView({
     setTagFilter("all");
     setAddedDateFilter(undefined);
     setSort("updated_desc");
+    const params = new URLSearchParams(window.location.search);
+    params.delete("action");
+    params.delete("due");
+    const query = params.toString();
+    router.replace(`${window.location.pathname}${query ? `?${query}` : ""}`, {
+      scroll: false,
+    });
   };
 
   const refreshVisibleLeads = useCallback(async () => {
@@ -766,14 +774,15 @@ export function LeadsView({
                   {item.label}
                 </DropdownMenuItem>
               ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setSort("updated_desc")}
-                disabled={sort === "updated_desc"}
-              >
-                <RotateCcwIcon />
-                Orden predeterminado
-              </DropdownMenuItem>
+              {sort !== "updated_desc" && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setSort("updated_desc")}>
+                    <RotateCcwIcon />
+                    Orden predeterminado
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -934,15 +943,15 @@ export function LeadsView({
                 onChange={setAddedDateFilter}
               />
 
-              <DropdownMenuSeparator />
-
-              <DropdownMenuItem
-                onClick={resetFilters}
-                disabled={isDefaultQuery}
-              >
-                <RotateCcwIcon />
-                Restablecer filtros
-              </DropdownMenuItem>
+              {hasFilters && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={resetFilters}>
+                    <RotateCcwIcon />
+                    Restablecer filtros
+                  </DropdownMenuItem>
+                </>
+              )}
 
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1111,8 +1120,8 @@ export function LeadsView({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
-        <Table>
+      <div className="overflow-hidden rounded-xl border bg-card shadow-xs [overflow-anchor:none]">
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow className="hover:bg-transparent border-border/70">
               {selectionMode && (
@@ -1136,22 +1145,22 @@ export function LeadsView({
               )}
               <TableHead
                 className={cn(
-                  "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
+                  "w-[18%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
                   selectionMode ? undefined : "pl-5"
                 )}
               >
                 Negocio
               </TableHead>
-              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase md:table-cell">
+              <TableHead className="hidden w-[14%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase md:table-cell">
                 Canales
               </TableHead>
-              <TableHead className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              <TableHead className="w-[16%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Estado
               </TableHead>
-              <TableHead className="hidden text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
+              <TableHead className="hidden w-[24%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
                 Última actividad
               </TableHead>
-              <TableHead className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              <TableHead className="w-[24%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Próxima acción
               </TableHead>
               <TableHead className="w-10" />
@@ -1246,9 +1255,12 @@ export function LeadsView({
                     </TableCell>
                   )}
                   <TableCell
-                    className={cn("py-3", !selectionMode && "pl-5")}
+                    className={cn(
+                      "w-[18%] max-w-0 overflow-hidden py-3",
+                      !selectionMode && "pl-5"
+                    )}
                   >
-                    <div className="min-w-0">
+                    <div className="min-w-0 overflow-hidden">
                       <button
                         type="button"
                         className="group/name inline-flex max-w-full items-center rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"

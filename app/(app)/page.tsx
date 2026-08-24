@@ -13,6 +13,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import {
+  CardAction,
   Card,
   CardContent,
   CardHeader,
@@ -173,15 +174,17 @@ export default async function DashboardPage() {
       </div>
 
       <Card className="mt-4 gap-0 py-0">
-        <CardHeader className="flex-row items-center justify-between border-b px-5 py-4">
+        <CardHeader className="items-center border-b px-5 py-4">
           <div>
             <CardTitle className="font-heading text-base">Para hoy</CardTitle>
             <p className="mt-0.5 text-xs text-muted-foreground">Trabajo pendiente ordenado por la siguiente acción.</p>
           </div>
           {firstPending && (
-            <Button size="sm" render={<Link href={`/leads?open=${firstPending.id}`} />}>
-              Empezar <ArrowRightIcon />
-            </Button>
+            <CardAction className="self-center">
+              <Button size="sm" render={<Link href={`/leads?open=${firstPending.id}`} />}>
+                Empezar <ArrowRightIcon />
+              </Button>
+            </CardAction>
           )}
         </CardHeader>
         <CardContent className="grid gap-px bg-border p-0 sm:grid-cols-2 lg:grid-cols-4">

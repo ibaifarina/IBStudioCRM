@@ -34,25 +34,51 @@ const tagChartConfig = {
 } satisfies ChartConfig;
 
 export function ConversionFunnel({ data }: { data: FunnelDatum[] }) {
-  const maximum = Math.max(data[0]?.value ?? 0, 1);
+  const stageWidths = [100, 86, 72, 58, 44];
+
   return (
-    <div className="flex h-56 flex-col justify-center gap-2.5">
-      {data.map((step) => (
-        <div key={step.key} className="grid grid-cols-[92px_minmax(0,1fr)_62px] items-center gap-3 text-sm">
-          <span className="text-xs font-medium text-muted-foreground">{step.label}</span>
-          <div className="h-6 overflow-hidden rounded-md bg-muted/60">
+    <div className="flex h-56 w-full items-center gap-3 sm:gap-5">
+      <div
+        className="flex min-w-0 flex-1 flex-col items-center"
+        role="list"
+        aria-label="Etapas del embudo de conversión"
+      >
+        {data.map((step, index) => {
+          const width = stageWidths[index] ?? 44;
+          const nextWidth = stageWidths[index + 1] ?? 28;
+          const inset = ((width - nextWidth) / width / 2) * 100;
+
+          return (
             <div
-              className="flex h-full min-w-8 items-center rounded-md px-2 text-[11px] font-semibold text-white tabular-nums transition-[width]"
-              style={{ width: `${Math.max(8, (step.value / maximum) * 100)}%`, backgroundColor: step.color }}
+              key={step.key}
+              role="listitem"
+              aria-label={`${step.label}: ${step.value}${step.rate == null ? "" : `, ${step.rate}% de conversión`}`}
+              className="flex h-10 items-center justify-center px-4 text-white drop-shadow-sm transition-[width] duration-500 first:rounded-t-sm"
+              style={{
+                width: `${width}%`,
+                backgroundColor: step.color,
+                clipPath: `polygon(0 0, 100% 0, ${100 - inset}% 100%, ${inset}% 100%)`,
+              }}
             >
-              {step.value}
+              <span className="truncate text-xs font-medium">{step.label}</span>
+              <span className="ml-2 text-sm font-bold tabular-nums">{step.value}</span>
             </div>
+          );
+        })}
+      </div>
+
+      <div className="grid h-50 w-20 shrink-0 grid-rows-5 sm:w-24" aria-hidden="true">
+        {data.map((step) => (
+          <div key={step.key} className="flex flex-col justify-center border-b border-border/60 last:border-0">
+            <span className="text-[10px] leading-none text-muted-foreground">
+              {step.rate == null ? "Entrada" : "Conversión"}
+            </span>
+            <span className="mt-1 text-xs font-semibold tabular-nums">
+              {step.rate == null ? "100%" : `${step.rate}%`}
+            </span>
           </div>
-          <span className="text-right text-xs text-muted-foreground tabular-nums">
-            {step.rate == null ? "base" : `${step.rate}%`}
-          </span>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
