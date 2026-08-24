@@ -6,6 +6,7 @@ import type {
   StatusKey,
   WebsiteStatusKey,
 } from "@/lib/config";
+import type { LeadGrade, LeadScoreBreakdown } from "@/lib/lead-scoring";
 
 export type LeadActivity = {
   id: number;
@@ -22,9 +23,11 @@ export type Lead = {
   id: number;
   name: string;
   instagram: string | null;
+  facebook: string | null;
   website: string | null;
   websiteStatus: WebsiteStatusKey;
   phone: string | null;
+  email: string | null;
   address: string | null;
   lat: number | null;
   lng: number | null;
@@ -43,6 +46,22 @@ export type Lead = {
   nextActionAt: string | null;
   source: LeadSourceKey;
   googlePlaceId: string | null;
+  businessCategories: string[];
+  rating: number | null;
+  reviewCount: number | null;
+  lastReviewAt: string | null;
+  photoCount: number | null;
+  socialLinks: string[];
+  digitalPresenceKnown: boolean;
+  openStatus: string | null;
+  isPermanentlyClosed: boolean;
+  isChain: boolean;
+  leadScore: number;
+  leadGrade: LeadGrade;
+  scoreBreakdown: LeadScoreBreakdown;
+  scoreConfidence: number;
+  scoreVersion: number;
+  scoredAt: string;
   /** Legacy date mirrors retained during the data migration. */
   contactDate: string | null;
   followUpDate: string | null;
@@ -86,6 +105,7 @@ export type LeadCursor = Pick<
   | "updatedAt"
   | "followUpDate"
   | "nextActionAt"
+  | "leadScore"
 >;
 
 export type LeadSort = LeadSortKey;
@@ -96,6 +116,9 @@ export type LeadFilters = {
   nextAction?: NextActionKey;
   actionTiming?: "today" | "overdue";
   websiteStatus?: WebsiteStatusKey;
+  leadGrade?: LeadGrade;
+  scoreMin?: number;
+  scoreMax?: number;
   tagId?: number;
   createdFrom?: string;
   createdTo?: string;
@@ -130,9 +153,11 @@ export type LeadInput = {
   id?: number;
   name: string;
   instagram?: string | null;
+  facebook?: string | null;
   website?: string | null;
   websiteStatus: WebsiteStatusKey;
   phone?: string | null;
+  email?: string | null;
   address?: string | null;
   lat?: number | null;
   lng?: number | null;
@@ -145,6 +170,16 @@ export type LeadInput = {
   nextActionAt?: string | null;
   source?: LeadSourceKey;
   googlePlaceId?: string | null;
+  businessCategories?: string[];
+  rating?: number | null;
+  reviewCount?: number | null;
+  lastReviewAt?: string | null;
+  photoCount?: number | null;
+  socialLinks?: string[];
+  digitalPresenceKnown?: boolean;
+  openStatus?: string | null;
+  isPermanentlyClosed?: boolean;
+  isChain?: boolean;
   tagIds: number[];
   allowDuplicate?: boolean;
 };

@@ -6,6 +6,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   Loader2Icon,
+  MailIcon,
   MapPinIcon,
   PhoneIcon,
 } from "lucide-react";
@@ -65,9 +66,11 @@ import { cn } from "@/lib/utils";
 type FormState = {
   name: string;
   instagram: string;
+  facebook: string;
   website: string;
   websiteStatus: WebsiteStatusKey;
   phone: string;
+  email: string;
   address: string;
   lat: number | null;
   lng: number | null;
@@ -79,6 +82,16 @@ type FormState = {
   nextActionDate: string;
   source: LeadSourceKey;
   googlePlaceId: string;
+  businessCategories: string[];
+  rating: number | null;
+  reviewCount: number | null;
+  lastReviewAt: string;
+  photoCount: number | null;
+  socialLinks: string[];
+  digitalPresenceKnown: boolean;
+  openStatus: string;
+  isPermanentlyClosed: boolean;
+  isChain: boolean;
   tags: Tag[];
 };
 
@@ -89,9 +102,11 @@ function fromLead(lead: LeadWithTags): FormState {
   return {
     name: lead.name,
     instagram: lead.instagram ?? "",
+    facebook: lead.facebook ?? "",
     website: lead.website ?? "",
     websiteStatus: lead.websiteStatus,
     phone: lead.phone ?? "",
+    email: lead.email ?? "",
     address: lead.address ?? "",
     lat: lead.lat,
     lng: lead.lng,
@@ -103,6 +118,16 @@ function fromLead(lead: LeadWithTags): FormState {
     nextActionDate: timestampToDateInput(lead.nextActionAt),
     source: lead.source,
     googlePlaceId: lead.googlePlaceId ?? "",
+    businessCategories: lead.businessCategories,
+    rating: lead.rating,
+    reviewCount: lead.reviewCount,
+    lastReviewAt: timestampToDateInput(lead.lastReviewAt),
+    photoCount: lead.photoCount,
+    socialLinks: lead.socialLinks,
+    digitalPresenceKnown: lead.digitalPresenceKnown,
+    openStatus: lead.openStatus ?? "",
+    isPermanentlyClosed: lead.isPermanentlyClosed,
+    isChain: lead.isChain,
     tags: lead.tags,
   };
 }
@@ -117,9 +142,11 @@ function emptyForm(): FormState {
   return {
     name: "",
     instagram: "",
+    facebook: "",
     website: "",
     websiteStatus: "sin_revisar",
     phone: "",
+    email: "",
     address: "",
     lat: null,
     lng: null,
@@ -131,6 +158,16 @@ function emptyForm(): FormState {
     nextActionDate: "",
     source: "manual",
     googlePlaceId: "",
+    businessCategories: [],
+    rating: null,
+    reviewCount: null,
+    lastReviewAt: "",
+    photoCount: null,
+    socialLinks: [],
+    digitalPresenceKnown: false,
+    openStatus: "",
+    isPermanentlyClosed: false,
+    isChain: false,
     tags: [],
   };
 }
@@ -278,9 +315,11 @@ export function LeadDialog({
         id: lead?.id,
         name: form.name,
         instagram: form.instagram,
+        facebook: form.facebook,
         website: form.website,
         websiteStatus: form.websiteStatus,
         phone: form.phone,
+        email: form.email,
         address: form.address,
         lat: form.lat,
         lng: form.lng,
@@ -293,6 +332,18 @@ export function LeadDialog({
         nextActionAt: dateInputToTimestamp(form.nextActionDate),
         source: form.source,
         googlePlaceId: form.googlePlaceId,
+        businessCategories: form.businessCategories,
+        rating: form.rating,
+        reviewCount: form.reviewCount,
+        lastReviewAt: form.lastReviewAt
+          ? `${form.lastReviewAt}T12:00:00.000Z`
+          : null,
+        photoCount: form.photoCount,
+        socialLinks: form.socialLinks,
+        digitalPresenceKnown: form.digitalPresenceKnown,
+        openStatus: form.openStatus,
+        isPermanentlyClosed: form.isPermanentlyClosed,
+        isChain: form.isChain,
         tagIds: form.tags.map((t) => t.id),
         allowDuplicate,
       });
@@ -479,6 +530,37 @@ export function LeadDialog({
                     />
                   </div>
                 </div>
+
+                <div className="grid gap-1.5">
+                  <Label htmlFor="lead-email" className={FIELD_LABEL_CLS}>
+                    Email
+                  </Label>
+                  <div className="relative">
+                    <MailIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="lead-email"
+                      type="email"
+                      className="pl-7"
+                      value={form.email}
+                      onChange={(e) => set("email", e.target.value)}
+                      placeholder="hola@negocio.es"
+                      {...NO_AUTOCOMPLETE}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label htmlFor="lead-facebook" className={FIELD_LABEL_CLS}>
+                    Facebook
+                  </Label>
+                  <Input
+                    id="lead-facebook"
+                    value={form.facebook}
+                    onChange={(e) => set("facebook", e.target.value)}
+                    placeholder="URL del perfil"
+                    {...NO_AUTOCOMPLETE}
+                  />
+                </div>
               </div>
             </section>
 
@@ -629,6 +711,90 @@ export function LeadDialog({
                     placeholder="https://…"
                     {...NO_AUTOCOMPLETE}
                   />
+                </div>
+
+                <div className="grid gap-1.5 sm:col-span-2">
+                  <Label htmlFor="lead-categories" className={FIELD_LABEL_CLS}>
+                    Categorías del negocio
+                  </Label>
+                  <Input
+                    id="lead-categories"
+                    value={form.businessCategories.join(", ")}
+                    onChange={(event) =>
+                      set(
+                        "businessCategories",
+                        event.target.value
+                          .split(",")
+                          .map((value) => value.trim())
+                          .filter(Boolean)
+                      )
+                    }
+                    placeholder="Peluquería, centro de belleza…"
+                  />
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label htmlFor="lead-rating" className={FIELD_LABEL_CLS}>
+                    Rating de Google
+                  </Label>
+                  <Input
+                    id="lead-rating"
+                    type="number"
+                    min="0"
+                    max="5"
+                    step="0.1"
+                    value={form.rating ?? ""}
+                    onChange={(event) =>
+                      set("rating", event.target.value ? Number(event.target.value) : null)
+                    }
+                    placeholder="4,7"
+                  />
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label htmlFor="lead-reviews" className={FIELD_LABEL_CLS}>
+                    Número de reseñas
+                  </Label>
+                  <Input
+                    id="lead-reviews"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.reviewCount ?? ""}
+                    onChange={(event) =>
+                      set("reviewCount", event.target.value ? Number(event.target.value) : null)
+                    }
+                    placeholder="80"
+                  />
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label className={FIELD_LABEL_CLS}>Última reseña</Label>
+                  <DateField
+                    value={form.lastReviewAt}
+                    onChange={(value) => set("lastReviewAt", value)}
+                  />
+                </div>
+
+                <div className="flex flex-col justify-end gap-2 rounded-lg border px-3 py-2.5">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.isChain}
+                      onChange={(event) => set("isChain", event.target.checked)}
+                      className="size-4 accent-primary"
+                    />
+                    Franquicia o cadena confirmada
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.isPermanentlyClosed}
+                      onChange={(event) => set("isPermanentlyClosed", event.target.checked)}
+                      className="size-4 accent-primary"
+                    />
+                    Cerrado permanentemente
+                  </label>
                 </div>
 
                 <div className="grid gap-1.5">

@@ -13,6 +13,7 @@ import {
 } from "@/lib/leads-csv";
 import { captureLeadChangeSet } from "@/lib/lead-history";
 import { findDuplicateLead } from "@/lib/lead-identifiers";
+import { scoreValuesForInput } from "@/lib/lead-scoring-server";
 import { createClient } from "@/lib/supabase/server";
 import type { LeadImportComparable } from "@/lib/types";
 
@@ -47,6 +48,18 @@ type ExportRow = {
   next_action_at: string | null;
   source: LeadSourceKey;
   google_place_id: string | null;
+  email: string | null;
+  facebook: string | null;
+  business_categories: string[];
+  rating: number | null;
+  review_count: number | null;
+  last_review_at: string | null;
+  photo_count: number | null;
+  social_links: string[];
+  digital_presence_known: boolean;
+  open_status: string | null;
+  is_permanently_closed: boolean;
+  is_chain: boolean;
   created_at: string;
   updated_at: string;
   lead_tags: Array<{ tags: { name: string } | Array<{ name: string }> | null }>;
@@ -108,6 +121,18 @@ export async function GET() {
         next_action_at,
         source,
         google_place_id,
+        email,
+        facebook,
+        business_categories,
+        rating,
+        review_count,
+        last_review_at,
+        photo_count,
+        social_links,
+        digital_presence_known,
+        open_status,
+        is_permanently_closed,
+        is_chain,
         created_at,
         updated_at,
         lead_tags ( tags ( name ) )
@@ -146,6 +171,18 @@ export async function GET() {
     nextActionAt: lead.next_action_at,
     source: lead.source,
     googlePlaceId: lead.google_place_id,
+    email: lead.email,
+    facebook: lead.facebook,
+    businessCategories: lead.business_categories,
+    rating: lead.rating == null ? null : Number(lead.rating),
+    reviewCount: lead.review_count,
+    lastReviewAt: lead.last_review_at,
+    photoCount: lead.photo_count,
+    socialLinks: lead.social_links,
+    digitalPresenceKnown: lead.digital_presence_known,
+    openStatus: lead.open_status,
+    isPermanentlyClosed: lead.is_permanently_closed,
+    isChain: lead.is_chain,
     createdAt: lead.created_at,
     updatedAt: lead.updated_at,
     tags: lead.lead_tags.flatMap((link) =>
@@ -350,6 +387,22 @@ export async function POST(request: Request) {
         next_action_at: lead.nextActionAt,
         source: lead.source,
         google_place_id: lead.googlePlaceId,
+        email: lead.email,
+        facebook: lead.facebook,
+        business_categories: lead.businessCategories,
+        rating: lead.rating,
+        review_count: lead.reviewCount,
+        last_review_at: lead.lastReviewAt,
+        photo_count: lead.photoCount,
+        social_links: lead.socialLinks,
+        digital_presence_known: lead.digitalPresenceKnown,
+        open_status: lead.openStatus,
+        is_permanently_closed: lead.isPermanentlyClosed,
+        is_chain: lead.isChain,
+        ...scoreValuesForInput({
+          ...lead,
+          tags: lead.tags,
+        }),
         created_at: lead.createdAt ?? now,
         updated_at: lead.updatedAt ?? lead.createdAt ?? now,
       };

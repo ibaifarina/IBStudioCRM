@@ -20,6 +20,7 @@ import {
   FileTextIcon,
   FilterIcon,
   GlobeIcon,
+  GaugeIcon,
   HistoryIcon,
   Loader2Icon,
   MapPinIcon,
@@ -48,6 +49,7 @@ import { BulkEditLeadsDialog } from "@/components/bulk-edit-leads-dialog";
 import { LeadImportDialog } from "@/components/lead-import-dialog";
 import { LeadDetailsModal } from "@/components/lead-details-modal";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
+import { LeadScoreBadge } from "@/components/lead-score-badge";
 import { LeadDialog } from "@/components/lead-dialog";
 import { NextActionDot, NextActionSelect } from "@/components/next-action-badge";
 import { StatusDot, StatusSelect } from "@/components/status-badge";
@@ -112,6 +114,8 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { instagramUrl, mapsUrl } from "@/lib/lead-links";
+import { SCORE_GRADES } from "@/lib/lead-scoring-config";
+import type { LeadGrade } from "@/lib/lead-scoring";
 
 async function copyText(value: string) {
   if (navigator.clipboard?.writeText) {
@@ -279,6 +283,8 @@ export function LeadsView({
   );
   const [websiteStatusFilter, setWebsiteStatusFilter] =
     useState<string>("all");
+  const [gradeFilter, setGradeFilter] = useState<LeadGrade | "all">("all");
+  const [scoreMinFilter, setScoreMinFilter] = useState<number | "all">("all");
   const [tagFilter, setTagFilter] = useState<number | "all">("all");
   const [addedDateFilter, setAddedDateFilter] = useState<DateRange>();
   const [sort, setSort] = useState<LeadSort>("updated_desc");
@@ -349,6 +355,8 @@ export function LeadsView({
         websiteStatusFilter === "all"
           ? undefined
           : (websiteStatusFilter as LeadFilters["websiteStatus"]),
+      leadGrade: gradeFilter === "all" ? undefined : gradeFilter,
+      scoreMin: scoreMinFilter === "all" ? undefined : scoreMinFilter,
       tagId: tagFilter === "all" ? undefined : tagFilter,
       createdFrom: from ? startOfDay(from).toISOString() : undefined,
       createdTo: to ? endOfDay(to).toISOString() : undefined,
@@ -356,10 +364,12 @@ export function LeadsView({
   }, [
     addedDateFilter,
     actionTiming,
+    gradeFilter,
     nextActionFilter,
     search,
     statusFilter,
     tagFilter,
+    scoreMinFilter,
     websiteStatusFilter,
   ]);
 
@@ -549,6 +559,8 @@ export function LeadsView({
     nextActionFilter !== "all",
     actionTiming !== "all",
     websiteStatusFilter !== "all",
+    gradeFilter !== "all",
+    scoreMinFilter !== "all",
     tagFilter !== "all",
     Boolean(addedDateFilter?.from),
   ].filter(Boolean).length;
@@ -635,7 +647,12 @@ export function LeadsView({
           (!updatedLead.nextActionAt ||
             isNextActionOverdue(updatedLead.nextAction, updatedLead.nextActionAt) ||
             isNextActionToday(updatedLead.nextAction, updatedLead.nextActionAt)));
-    const remainsVisible = matchesStatus && matchesAction && matchesTiming;
+    const matchesGrade =
+      gradeFilter === "all" || updatedLead.leadGrade === gradeFilter;
+    const matchesScore =
+      scoreMinFilter === "all" || updatedLead.leadScore >= scoreMinFilter;
+    const remainsVisible =
+      matchesStatus && matchesAction && matchesTiming && matchesGrade && matchesScore;
     const wasVisible = leads.some((lead) => lead.id === updatedLead.id);
     setLeads((current) =>
       remainsVisible
@@ -658,7 +675,7 @@ export function LeadsView({
     setEditing((current) =>
       current?.id === updatedLead.id ? updatedLead : current
     );
-  }, [actionTiming, initialOpenLead, leads, nextActionFilter, statusFilter]);
+  }, [actionTiming, gradeFilter, initialOpenLead, leads, nextActionFilter, scoreMinFilter, statusFilter]);
 
   const removeLead = useCallback((leadId: number) => {
     setLeads((current) => current.filter((lead) => lead.id !== leadId));
@@ -676,6 +693,8 @@ export function LeadsView({
     setNextActionFilter("all");
     setActionTiming("all");
     setWebsiteStatusFilter("all");
+    setGradeFilter("all");
+    setScoreMinFilter("all");
     setTagFilter("all");
     setAddedDateFilter(undefined);
     setSort("updated_desc");
@@ -839,6 +858,49 @@ export function LeadsView({
                       <StatusDot status={status.value} />
                       <span className="flex-1">{status.label}</span>
                       {statusFilter === status.value && <CheckIcon />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <GaugeIcon />
+                  <span>Lead Score</span>
+                  <FilterMenuValue>
+                    {gradeFilter !== "all"
+                      ? `Grado ${gradeFilter}`
+                      : scoreMinFilter !== "all"
+                        ? `${scoreMinFilter}+`
+                        : "Todos"}
+                  </FilterMenuValue>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56">
+                  <DropdownMenuItem onClick={() => { setGradeFilter("all"); setScoreMinFilter("all"); }}>
+                    <CheckIcon className={cn((gradeFilter !== "all" || scoreMinFilter !== "all") && "opacity-0")} />
+                    Todos los scores
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {SCORE_GRADES.map((item) => (
+                    <DropdownMenuItem
+                      key={item.grade}
+                      onClick={() => { setGradeFilter(item.grade); setScoreMinFilter("all"); }}
+                    >
+                      <span className="grid size-5 place-items-center rounded-md border text-[11px] font-semibold">
+                        {item.grade}
+                      </span>
+                      <span className="flex-1">{item.label}</span>
+                      {gradeFilter === item.grade && <CheckIcon />}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  {[80, 65, 50].map((minimum) => (
+                    <DropdownMenuItem
+                      key={minimum}
+                      onClick={() => { setScoreMinFilter(minimum); setGradeFilter("all"); }}
+                    >
+                      <CheckIcon className={cn(scoreMinFilter !== minimum && "opacity-0")} />
+                      Puntuación {minimum} o más
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
@@ -1034,6 +1096,18 @@ export function LeadsView({
                 {STATUSES.find((s) => s.value === statusFilter)?.label}
               </FilterChip>
             )}
+            {gradeFilter !== "all" && (
+              <FilterChip onRemove={() => setGradeFilter("all")}>
+                <GaugeIcon className="size-3 text-muted-foreground" />
+                Grado {gradeFilter}
+              </FilterChip>
+            )}
+            {scoreMinFilter !== "all" && (
+              <FilterChip onRemove={() => setScoreMinFilter("all")}>
+                <GaugeIcon className="size-3 text-muted-foreground" />
+                Score {scoreMinFilter}+
+              </FilterChip>
+            )}
             {nextActionFilter !== "all" && (
               <FilterChip onRemove={() => setNextActionFilter("all")}>
                 <NextActionDot action={nextActionFilter} />
@@ -1151,22 +1225,25 @@ export function LeadsView({
               )}
               <TableHead
                 className={cn(
-                  "w-[22%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
+                  "w-[19%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase",
                   selectionMode ? undefined : "pl-5"
                 )}
               >
                 Negocio
               </TableHead>
-              <TableHead className="hidden w-[14%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase md:table-cell">
+              <TableHead className="w-[10%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                Score
+              </TableHead>
+              <TableHead className="hidden w-[12%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase md:table-cell">
                 Canales
               </TableHead>
-              <TableHead className="w-[16%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              <TableHead className="w-[15%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Estado
               </TableHead>
-              <TableHead className="hidden w-[22%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
+              <TableHead className="hidden w-[20%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase lg:table-cell">
                 Última actividad
               </TableHead>
-              <TableHead className="w-[22%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              <TableHead className="w-[20%] text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
                 Próxima acción
               </TableHead>
               <TableHead className="w-10" />
@@ -1176,7 +1253,7 @@ export function LeadsView({
             {isFiltering && (
               <TableRow>
                 <TableCell
-                  colSpan={selectionMode ? 7 : 6}
+                  colSpan={selectionMode ? 8 : 7}
                   className="h-32 text-center"
                 >
                   <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
@@ -1189,7 +1266,7 @@ export function LeadsView({
             {!isFiltering && filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={selectionMode ? 7 : 6}
+                  colSpan={selectionMode ? 8 : 7}
                   className="h-64 text-center"
                 >
                   <div className="mx-auto flex max-w-xs flex-col items-center gap-3">
@@ -1262,7 +1339,7 @@ export function LeadsView({
                   )}
                   <TableCell
                     className={cn(
-                      "w-[22%] max-w-0 overflow-hidden py-3",
+                      "w-[19%] max-w-0 overflow-hidden py-3",
                       !selectionMode && "pl-5"
                     )}
                   >
@@ -1304,6 +1381,14 @@ export function LeadsView({
                         </div>
                       )}
                     </div>
+                  </TableCell>
+                  <TableCell onClick={(event) => event.stopPropagation()}>
+                    <LeadScoreBadge
+                      score={lead.leadScore}
+                      grade={lead.leadGrade}
+                      confidence={lead.scoreConfidence}
+                      breakdown={lead.scoreBreakdown}
+                    />
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <ChannelsCell lead={lead} />

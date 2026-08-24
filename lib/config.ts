@@ -182,6 +182,8 @@ export const WEBSITE_STATUS_MAP: Record<
 ) as Record<WebsiteStatusKey, { label: string; color: string }>;
 
 export const LEAD_SORTS = [
+  { value: "score_desc", label: "Mejor Lead Score" },
+  { value: "score_asc", label: "Menor Lead Score" },
   { value: "updated_desc", label: "Últimos cambios" },
   { value: "follow_up_asc", label: "Follow-up: fecha más próxima" },
   { value: "follow_up_desc", label: "Follow-up: fecha más lejana" },

@@ -1,6 +1,7 @@
 import { AppSidebar } from "@/components/app-sidebar";
 import { LeadsView } from "@/components/leads-view";
 import { todayISO } from "@/lib/dates";
+import { calculateLeadScore } from "@/lib/lead-scoring";
 import type { LeadWithTags } from "@/lib/types";
 
 const TAGS = [
@@ -24,11 +25,13 @@ const TEMPLATES = [
 function lead(
   partial: Partial<LeadWithTags> & Pick<LeadWithTags, "id" | "name">
 ): LeadWithTags {
-  return {
+  const value: LeadWithTags = {
     instagram: null,
+    facebook: null,
     website: null,
     websiteStatus: "sin_revisar",
     phone: null,
+    email: null,
     address: null,
     lat: null,
     lng: null,
@@ -46,6 +49,36 @@ function lead(
     nextActionAt: null,
     source: "manual",
     googlePlaceId: null,
+    businessCategories: [],
+    rating: null,
+    reviewCount: null,
+    lastReviewAt: null,
+    photoCount: null,
+    socialLinks: [],
+    digitalPresenceKnown: false,
+    openStatus: null,
+    isPermanentlyClosed: false,
+    isChain: false,
+    leadScore: 0,
+    leadGrade: "D",
+    scoreBreakdown: {
+      traction: { score: 11, reviews: 7, rating: 3, recency: 1 },
+      webOpportunity: 12,
+      digitalMaturity: 0,
+      sectorFit: 10,
+      contactability: 0,
+      locationFit: 2,
+      penalties: 8,
+      websiteClassification: "NONE",
+      businessProfile: "GENERAL",
+      categoryTier: "UNKNOWN",
+      location: "Otra zona",
+      reasons: ["Web todavía sin revisar", "Sector sin clasificar"],
+      details: [],
+    },
+    scoreConfidence: 0,
+    scoreVersion: 1,
+    scoredAt: "2026-08-24T09:00:00.000Z",
     contactDate: null,
     followUpDate: null,
     createdAt: "2026-08-01T09:00:00.000Z",
@@ -54,6 +87,13 @@ function lead(
     hasMoreActivity: false,
     tags: [],
     ...partial,
+  };
+  return {
+    ...value,
+    ...calculateLeadScore({
+      ...value,
+      tags: value.tags,
+    }, { now: new Date("2026-08-24T12:00:00.000Z") }),
   };
 }
 
@@ -66,6 +106,9 @@ const leads: LeadWithTags[] = [
     websiteStatus: "web_antigua",
     phone: "+34 612 34 56 78",
     address: "Carrer de Sant Pau, 44",
+    businessCategories: ["Restaurante"],
+    reviewCount: 80,
+    rating: 4.6,
     status: "contactado",
     statuses: ["contactado"],
     contactedAt: "2026-08-14T09:00:00.000Z",
@@ -116,8 +159,14 @@ const leads: LeadWithTags[] = [
     id: 2,
     name: "Gimnàs Rítmic Gràcia",
     instagram: "ritmic.gracia",
+    website: "https://booksy.com/es-es/ritmic-gracia",
     websiteStatus: "no_tiene_web",
     phone: "+34 690 11 22 33",
+    address: "Rambla d'Ègara, Terrassa",
+    businessCategories: ["Pilates"],
+    reviewCount: 80,
+    rating: 4.7,
+    digitalPresenceKnown: true,
     status: "respondio",
     statuses: ["respondio"],
     contactedAt: "2026-08-19T09:00:00.000Z",

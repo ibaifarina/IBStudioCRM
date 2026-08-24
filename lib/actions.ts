@@ -22,6 +22,7 @@ import {
   normalizeWebsiteDomain,
 } from "@/lib/lead-identifiers";
 import { resolveMapsCoordinates } from "@/lib/maps";
+import { scoreValuesForInput, recalculateLeadScores } from "@/lib/lead-scoring-server";
 import { isGoogleMapsShortUrl } from "@/lib/parse";
 import { getLeadActivities, getLeadWithTags } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
@@ -73,7 +74,15 @@ function isMissingCrmColumns(error: unknown): boolean {
       typeof error === "object" &&
       "code" in error &&
       (error.code === "42703" || error.code === "PGRST204") &&
-      ["next_action", "contacted_at", "source"].some((column) =>
+      [
+        "next_action",
+        "contacted_at",
+        "source",
+        "lead_score",
+        "score_breakdown",
+        "business_categories",
+        "digital_presence_known",
+      ].some((column) =>
         message.includes(column)
       )
   );
@@ -228,12 +237,24 @@ export async function saveLead(
     replied_at: string | null;
     last_contact_at: string | null;
     notes: string | null;
+    facebook: string | null;
+    email: string | null;
+    business_categories: string[];
+    rating: number | string | null;
+    review_count: number | null;
+    last_review_at: string | null;
+    photo_count: number | null;
+    social_links: string[];
+    digital_presence_known: boolean;
+    open_status: string | null;
+    is_permanently_closed: boolean;
+    is_chain: boolean;
   } | null = null;
 
   if (input.id) {
     const { data, error } = await auth.supabase
       .from("leads")
-      .select("status, contacted_at, replied_at, last_contact_at, notes")
+      .select("status, contacted_at, replied_at, last_contact_at, notes, facebook, email, business_categories, rating, review_count, last_review_at, photo_count, social_links, digital_presence_known, open_status, is_permanently_closed, is_chain")
       .eq("user_id", auth.userId)
       .eq("id", input.id)
       .maybeSingle();
@@ -256,6 +277,48 @@ export async function saveLead(
   const website = clean(input.website);
   const phone = clean(input.phone);
   const googlePlaceId = clean(input.googlePlaceId);
+  const facebook = input.facebook === undefined ? currentLead?.facebook ?? null : clean(input.facebook);
+  const email = input.email === undefined ? currentLead?.email ?? null : clean(input.email);
+  const businessCategories = input.businessCategories ?? currentLead?.business_categories ?? [];
+  const rating = input.rating === undefined
+    ? currentLead?.rating == null ? null : Number(currentLead.rating)
+    : input.rating;
+  const reviewCount = input.reviewCount === undefined
+    ? currentLead?.review_count ?? null
+    : input.reviewCount;
+  const lastReviewAt = input.lastReviewAt === undefined
+    ? currentLead?.last_review_at ?? null
+    : clean(input.lastReviewAt);
+  const photoCount = input.photoCount === undefined
+    ? currentLead?.photo_count ?? null
+    : input.photoCount;
+  const socialLinks = input.socialLinks ?? currentLead?.social_links ?? [];
+  const digitalPresenceKnown = input.digitalPresenceKnown ?? currentLead?.digital_presence_known ?? false;
+  const openStatus = input.openStatus === undefined
+    ? currentLead?.open_status ?? null
+    : clean(input.openStatus);
+  const isPermanentlyClosed = input.isPermanentlyClosed ?? currentLead?.is_permanently_closed ?? false;
+  const isChain = input.isChain ?? currentLead?.is_chain ?? false;
+  if (rating != null && (!Number.isFinite(rating) || rating < 0 || rating > 5)) {
+    return { error: "El rating debe estar entre 0 y 5." };
+  }
+  if (reviewCount != null && (!Number.isInteger(reviewCount) || reviewCount < 0)) {
+    return { error: "El número de reseñas no es válido." };
+  }
+  if (lastReviewAt != null && !Number.isFinite(Date.parse(lastReviewAt))) {
+    return { error: "La fecha de la última reseña no es válida." };
+  }
+  const tagIds = [...new Set(input.tagIds)];
+  const { data: selectedTags, error: selectedTagsError } = tagIds.length
+    ? await auth.supabase
+        .from("tags")
+        .select("id, name")
+        .eq("user_id", auth.userId)
+        .in("id", tagIds)
+    : { data: [], error: null };
+  if (selectedTagsError || selectedTags.length !== tagIds.length) {
+    return { error: "Una o más etiquetas no son válidas." };
+  }
 
   if (!input.id && !input.allowDuplicate) {
     const { data: comparableRows, error } = await auth.supabase
@@ -322,9 +385,11 @@ export async function saveLead(
     user_id: auth.userId,
     name,
     instagram,
+    facebook,
     website,
     website_status: input.websiteStatus,
     phone,
+    email,
     address,
     lat,
     lng,
@@ -342,9 +407,42 @@ export async function saveLead(
     next_action_at: nextActionAt,
     source: input.source ?? "manual",
     google_place_id: googlePlaceId,
+    business_categories: businessCategories,
+    rating,
+    review_count: reviewCount,
+    last_review_at: lastReviewAt,
+    photo_count: photoCount,
+    social_links: socialLinks,
+    digital_presence_known: digitalPresenceKnown,
+    open_status: openStatus,
+    is_permanently_closed: isPermanentlyClosed,
+    is_chain: isChain,
     normalized_phone: normalizePhoneE164(phone) || null,
     normalized_instagram: instagram,
     website_domain: normalizeWebsiteDomain(website) || null,
+    ...scoreValuesForInput({
+      name,
+      instagram,
+      facebook,
+      website,
+      websiteStatus: input.websiteStatus,
+      phone,
+      email,
+      address,
+      businessCategories,
+      rating,
+      reviewCount,
+      lastReviewAt,
+      photoCount,
+      socialLinks,
+      digitalPresenceKnown,
+      contactChannel: input.contactChannel,
+      source: input.source ?? "manual",
+      openStatus,
+      isPermanentlyClosed,
+      isChain,
+      tags: selectedTags.map((tag) => tag.name),
+    }),
     updated_at: now,
   };
 
@@ -413,7 +511,6 @@ export async function saveLead(
     id = data.id;
   }
 
-  const tagIds = [...new Set(input.tagIds)];
   if (tagIds.length > 0) {
     const { error } = await auth.supabase.from("lead_tags").insert(
       tagIds.map((tagId) => ({
@@ -925,6 +1022,9 @@ export async function setLeadWebsiteStatus(
     return { error: "No se pudo cambiar el estado de la web." };
   }
 
+  const recalculated = await recalculateLeadScores(auth.supabase, auth.userId, [id]);
+  if ("error" in recalculated) return { error: recalculated.error };
+
   return {};
 }
 
@@ -1133,6 +1233,15 @@ export async function updateLeadsBulk(
         return { error: "Los leads se actualizaron, pero no sus etiquetas." };
       }
     }
+  }
+
+  if (hasWebsiteStatus || hasTags) {
+    const recalculated = await recalculateLeadScores(
+      auth.supabase,
+      auth.userId,
+      leadIds
+    );
+    if ("error" in recalculated) return { error: recalculated.error };
   }
 
   revalidateCrm();

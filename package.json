@@ -1,12 +1,14 @@
 {
   "name": "ibstudio-crm",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test --experimental-strip-types lib/*.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

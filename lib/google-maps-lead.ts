@@ -1,4 +1,5 @@
 import { parseInstagramUsername, parseMapsCoordinates } from "@/lib/parse";
+import { classifyWebsite } from "@/lib/lead-scoring";
 
 export const GOOGLE_MAPS_LEAD_PREFIX = "IBSTUDIO_CRM_LEAD_V1";
 export const GOOGLE_MAPS_LEAD_HASH_KEY = "maps-lead";
@@ -36,12 +37,21 @@ export type GoogleMapsLead = {
 export type GoogleMapsLeadFormData = {
   name: string;
   instagram: string;
+  facebook: string;
   website: string;
   websiteStatus: "tiene_web" | "no_tiene_web";
   phone: string;
+  email: string;
   address: string;
   lat: number | null;
   lng: number | null;
+  businessCategories: string[];
+  rating: number | null;
+  reviewCount: number | null;
+  socialLinks: string[];
+  digitalPresenceKnown: true;
+  openStatus: string;
+  isPermanentlyClosed: boolean;
 };
 
 function optionalString(value: unknown, maxLength = 2_000): string | undefined {
@@ -170,6 +180,23 @@ function isInstagramUrl(value: string): boolean {
   }
 }
 
+function isFacebookUrl(value: string): boolean {
+  try {
+    return /(^|\.)(facebook\.com|fb\.com)$/i.test(new URL(value).hostname);
+  } catch {
+    return /(facebook\.com|fb\.com)/i.test(value);
+  }
+}
+
+function parseLocalizedNumber(value: string | undefined) {
+  if (!value) return null;
+  const compact = value.replace(/\s/g, "");
+  const match = compact.match(/[0-9]+(?:[.,][0-9]+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0].replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /** Converts a parsed Maps payload into the fields supported by the lead form. */
 export function googleMapsLeadToFormData(
   lead: GoogleMapsLead
@@ -177,19 +204,33 @@ export function googleMapsLeadToFormData(
   const instagramUrl = [lead.website, ...(lead.socialLinks ?? [])].find(
     (value): value is string => Boolean(value && isInstagramUrl(value))
   );
-  const website =
-    lead.website && !isInstagramUrl(lead.website) ? lead.website : "";
+  const facebookUrl = [lead.website, ...(lead.socialLinks ?? [])].find(
+    (value): value is string => Boolean(value && isFacebookUrl(value))
+  );
+  const website = lead.website ?? "";
+  const websiteKind = classifyWebsite(website);
   const mapsCoordinates = lead.url ? parseMapsCoordinates(lead.url) : null;
   const coordinates = lead.coordinates ?? mapsCoordinates;
 
   return {
     name: lead.name,
     instagram: instagramUrl ? parseInstagramUsername(instagramUrl) : "",
+    facebook: facebookUrl ?? "",
     website,
-    websiteStatus: website ? "tiene_web" : "no_tiene_web",
+    websiteStatus: websiteKind === "OWN_WEBSITE" ? "tiene_web" : "no_tiene_web",
     phone: lead.phone ?? "",
+    email: lead.email ?? "",
     address: lead.url ?? lead.address ?? "",
     lat: coordinates?.lat ?? null,
     lng: coordinates?.lng ?? null,
+    businessCategories: lead.category ? [lead.category] : [],
+    rating: parseLocalizedNumber(lead.rating),
+    reviewCount: parseLocalizedNumber(lead.reviewCount),
+    socialLinks: lead.socialLinks ?? [],
+    digitalPresenceKnown: true,
+    openStatus: lead.openStatus ?? "",
+    isPermanentlyClosed: /permanently.closed|cerrado permanentemente|tancat permanentment/i.test(
+      lead.openStatus ?? ""
+    ),
   };
 }

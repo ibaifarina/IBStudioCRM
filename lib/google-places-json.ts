@@ -4,6 +4,7 @@ import {
   normalizePhoneE164,
   normalizeWebsiteDomain,
 } from "@/lib/lead-identifiers";
+import { classifyWebsite } from "@/lib/lead-scoring";
 
 export const MAX_GOOGLE_PLACES_LEADS = 5_000;
 
@@ -14,31 +15,24 @@ export type GooglePlacesLeadDraft = {
   placeId: string | null;
   name: string;
   instagram: string | null;
+  facebook: string | null;
   website: string | null;
   websiteStatus: "tiene_web" | "no_tiene_web";
   phone: string | null;
+  email: string | null;
   address: string | null;
   lat: number | null;
   lng: number | null;
   categories: string[];
+  rating: number | null;
+  reviewCount: number | null;
+  lastReviewAt: string | null;
+  photoCount: number | null;
+  socialLinks: string[];
+  digitalPresenceKnown: true;
+  openStatus: string | null;
+  isPermanentlyClosed: boolean;
 };
-
-const NON_WEBSITE_PLATFORM_DOMAINS = new Set([
-  "instagram.com",
-  "facebook.com",
-  "fb.com",
-  "booksy.com",
-  "booksy.es",
-  "fresha.com",
-  "treatwell.com",
-  "treatwell.es",
-  "tiktok.com",
-  "linktr.ee",
-  "linktree.com",
-  "wa.me",
-  "whatsapp.com",
-  "sites.google.com",
-]);
 
 const INSTAGRAM_NON_PROFILE_PATHS = new Set([
   "accounts",
@@ -64,7 +58,47 @@ function cleanString(value: unknown, maxLength?: number) {
 }
 
 function finiteNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function isoDate(value: unknown) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const timestamp = Date.parse(cleaned);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function stringValues(value: unknown): string[] {
+  const values = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.values(value as Record<string, unknown>)
+      : [];
+  return values
+    .flatMap((item) => (Array.isArray(item) ? item : [item]))
+    .map((item) => cleanString(item, 2_000))
+    .filter((item): item is string => Boolean(item));
+}
+
+function latestReviewDate(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const dates = value
+    .flatMap((review) => {
+      if (!review || typeof review !== "object" || Array.isArray(review)) return [];
+      const item = review as Record<string, unknown>;
+      return [item.publishedAtDate, item.publishedAt, item.date, item.reviewDate];
+    })
+    .map((item) => cleanString(item))
+    .filter((item): item is string => Boolean(item && !Number.isNaN(Date.parse(item))))
+    .map((item) => new Date(item).toISOString())
+    .sort()
+    .reverse();
+  return dates[0] ?? null;
 }
 
 function parseUrl(value: string) {
@@ -114,11 +148,8 @@ function onlinePresence(rawWebsite: string | null) {
     };
   }
 
-  const hostname = normalizedHostname(rawWebsite);
-  const platformDomain = [...NON_WEBSITE_PLATFORM_DOMAINS].find((domain) =>
-    matchesDomain(hostname, domain)
-  );
-  if (!platformDomain) {
+  const websiteKind = classifyWebsite(rawWebsite);
+  if (websiteKind === "OWN_WEBSITE") {
     return {
       instagram: null,
       website: rawWebsite,
@@ -128,7 +159,7 @@ function onlinePresence(rawWebsite: string | null) {
 
   return {
     instagram:
-      platformDomain === "instagram.com"
+      matchesDomain(normalizedHostname(rawWebsite), "instagram.com")
         ? instagramUsername(rawWebsite)
         : null,
     website: rawWebsite,
@@ -268,18 +299,65 @@ export function parseGooglePlacesJson(text: string): GooglePlacesLeadDraft[] {
       ),
     ];
     const presence = onlinePresence(cleanString(record.website));
+    const socialLinks = [
+      ...stringValues(record.socials),
+      ...stringValues(record.socialLinks),
+      cleanString(record.instagramUrl),
+      cleanString(record.facebookUrl),
+    ].filter((value): value is string => Boolean(value));
+    const instagramLink = socialLinks.find((value) =>
+      matchesDomain(normalizedHostname(value), "instagram.com")
+    );
+    const facebook = socialLinks.find((value) =>
+      ["facebook.com", "fb.com"].some((domain) =>
+        matchesDomain(normalizedHostname(value), domain)
+      )
+    ) ?? null;
+    const imageValues = stringValues(record.imageUrls);
+    const explicitPhotoCount =
+      finiteNumber(record.imagesCount) ??
+      finiteNumber(record.photosCount) ??
+      finiteNumber(record.imageCount);
+    const reviewCount =
+      finiteNumber(record.reviewsCount) ??
+      finiteNumber(record.reviewCount) ??
+      finiteNumber(record.userRatingsTotal);
+    const rating = finiteNumber(record.totalScore) ?? finiteNumber(record.rating);
+    const rawOpenStatus =
+      cleanString(record.openStatus) ?? cleanString(record.placeStatus);
+    const isPermanentlyClosed =
+      record.permanentlyClosed === true ||
+      record.isPermanentlyClosed === true ||
+      /permanently.closed|cerrado permanentemente|tancat permanentment/i.test(rawOpenStatus ?? "");
 
     return {
       sourceIndex,
       placeId: cleanString(record.placeId),
       name,
       ...presence,
+      instagram: presence.instagram ?? (instagramLink ? instagramUsername(instagramLink) : null),
+      facebook,
       phone:
         cleanString(record.phone) ?? cleanString(record.phoneUnformatted),
+      email: cleanString(record.email, 320),
       address: cleanString(record.address),
       lat: finiteNumber(location.lat),
       lng: finiteNumber(location.lng),
       categories,
+      rating: rating != null && rating >= 0 && rating <= 5 ? rating : null,
+      reviewCount: reviewCount != null && reviewCount >= 0 ? Math.round(reviewCount) : null,
+      lastReviewAt:
+        latestReviewDate(record.reviews) ??
+        isoDate(record.lastReviewAt) ??
+        isoDate(record.lastReviewDate),
+      photoCount:
+        explicitPhotoCount != null && explicitPhotoCount >= 0
+          ? Math.round(explicitPhotoCount)
+          : imageValues.length || null,
+      socialLinks: [...new Set(socialLinks)],
+      digitalPresenceKnown: true,
+      openStatus: rawOpenStatus,
+      isPermanentlyClosed,
     };
   });
 }

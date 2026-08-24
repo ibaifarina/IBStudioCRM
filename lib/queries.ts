@@ -14,6 +14,7 @@ import {
   todayISO,
 } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
+import { calculateLeadScore, type LeadGrade, type LeadScoreBreakdown } from "@/lib/lead-scoring";
 import type {
   LeadCursor,
   LeadFilters,
@@ -77,9 +78,11 @@ type LeadRow = {
   id: number;
   name: string;
   instagram: string | null;
+  facebook?: string | null;
   website: string | null;
   website_status?: LeadWithTags["websiteStatus"] | null;
   phone: string | null;
+  email?: string | null;
   address: string | null;
   lat: number | null;
   lng: number | null;
@@ -99,6 +102,22 @@ type LeadRow = {
   next_action_at?: string | null;
   source?: string | null;
   google_place_id?: string | null;
+  business_categories?: string[] | null;
+  rating?: number | string | null;
+  review_count?: number | null;
+  last_review_at?: string | null;
+  photo_count?: number | null;
+  social_links?: string[] | null;
+  digital_presence_known?: boolean | null;
+  open_status?: string | null;
+  is_permanently_closed?: boolean | null;
+  is_chain?: boolean | null;
+  lead_score?: number | null;
+  lead_grade?: LeadGrade | null;
+  score_breakdown?: unknown;
+  score_confidence?: number | null;
+  score_version?: number | null;
+  scored_at?: string | null;
   created_at: string;
   updated_at: string;
   lead_tags: Array<{ tags: TagRow | TagRow[] | null }>;
@@ -125,10 +144,45 @@ function mapLeadRow(
     lead.next_action && isValidNextAction(lead.next_action)
       ? lead.next_action
       : legacyNextAction(lead, status);
+  const tags = lead.lead_tags
+    .flatMap((link) =>
+      Array.isArray(link.tags) ? link.tags : link.tags ? [link.tags] : []
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const fallbackScore = calculateLeadScore({
+    name: lead.name,
+    instagram: lead.instagram,
+    facebook: lead.facebook,
+    website: lead.website,
+    websiteStatus: lead.website_status,
+    phone: lead.phone,
+    email: lead.email,
+    address: lead.address,
+    businessCategories: lead.business_categories,
+    rating: lead.rating == null ? null : Number(lead.rating),
+    reviewCount: lead.review_count,
+    lastReviewAt: lead.last_review_at,
+    photoCount: lead.photo_count,
+    socialLinks: lead.social_links,
+    digitalPresenceKnown: lead.digital_presence_known,
+    contactChannel: lead.contact_channel,
+    source: lead.source,
+    openStatus: lead.open_status,
+    isPermanentlyClosed: lead.is_permanently_closed,
+    isChain: lead.is_chain,
+    tags,
+  });
+  const storedBreakdown =
+    lead.score_breakdown &&
+    typeof lead.score_breakdown === "object" &&
+    !Array.isArray(lead.score_breakdown)
+      ? (lead.score_breakdown as LeadScoreBreakdown)
+      : fallbackScore.scoreBreakdown;
   return {
     id: lead.id,
     name: lead.name,
     instagram: lead.instagram,
+    facebook: lead.facebook ?? null,
     website: lead.website,
     websiteStatus:
       hasWebsiteStatusColumn && lead.website_status
@@ -137,6 +191,7 @@ function mapLeadRow(
           ? "tiene_web"
           : "sin_revisar",
     phone: lead.phone,
+    email: lead.email ?? null,
     address: lead.address,
     lat: lead.lat,
     lng: lead.lng,
@@ -159,17 +214,29 @@ function mapLeadRow(
     source:
       lead.source && isValidLeadSource(lead.source) ? lead.source : "manual",
     googlePlaceId: lead.google_place_id ?? null,
+    businessCategories: lead.business_categories ?? [],
+    rating: lead.rating == null ? null : Number(lead.rating),
+    reviewCount: lead.review_count ?? null,
+    lastReviewAt: lead.last_review_at ?? null,
+    photoCount: lead.photo_count ?? null,
+    socialLinks: lead.social_links ?? [],
+    digitalPresenceKnown: lead.digital_presence_known ?? false,
+    openStatus: lead.open_status ?? null,
+    isPermanentlyClosed: lead.is_permanently_closed ?? false,
+    isChain: lead.is_chain ?? false,
+    leadScore: lead.lead_score ?? fallbackScore.leadScore,
+    leadGrade: lead.lead_grade ?? fallbackScore.leadGrade,
+    scoreBreakdown: storedBreakdown,
+    scoreConfidence: lead.score_confidence ?? fallbackScore.scoreConfidence,
+    scoreVersion: lead.score_version ?? fallbackScore.scoreVersion,
+    scoredAt: lead.scored_at ?? fallbackScore.scoredAt,
     contactDate: lead.contact_date,
     followUpDate: lead.follow_up_date,
     createdAt: lead.created_at,
     updatedAt: lead.updated_at,
     recentActivities: [],
     hasMoreActivity: false,
-    tags: lead.lead_tags
-      .flatMap((link) =>
-        Array.isArray(link.tags) ? link.tags : link.tags ? [link.tags] : []
-      )
-      .sort((a, b) => a.name.localeCompare(b.name, "es")),
+    tags,
   };
 }
 
@@ -246,38 +313,7 @@ export const getLeadsWithTags = cache(async (): Promise<LeadWithTags[]> => {
   const supabase = await createClient();
   const initialResult = await supabase
     .from("leads")
-    .select(
-      `
-        id,
-        name,
-        instagram,
-        website,
-        website_status,
-        phone,
-        address,
-        lat,
-        lng,
-        problem,
-        notes,
-        status,
-        statuses,
-        contact_date,
-        follow_up_date,
-        contacted_at,
-        replied_at,
-        last_contact_at,
-        last_outbound_at,
-        last_inbound_at,
-        contact_channel,
-        next_action,
-        next_action_at,
-        source,
-        google_place_id,
-        created_at,
-        updated_at,
-        lead_tags ( tags ( id, name, color ) )
-      `
-    )
+    .select(LEAD_PAGE_COLUMNS)
     .order("updated_at", { ascending: false });
   let data: unknown = initialResult.data;
   let error = initialResult.error;
@@ -308,9 +344,11 @@ const LEAD_PAGE_COLUMNS = `
   id,
   name,
   instagram,
+  facebook,
   website,
   website_status,
   phone,
+  email,
   address,
   lat,
   lng,
@@ -330,6 +368,22 @@ const LEAD_PAGE_COLUMNS = `
   next_action_at,
   source,
   google_place_id,
+  business_categories,
+  rating,
+  review_count,
+  last_review_at,
+  photo_count,
+  social_links,
+  digital_presence_known,
+  open_status,
+  is_permanently_closed,
+  is_chain,
+  lead_score,
+  lead_grade,
+  score_breakdown,
+  score_confidence,
+  score_version,
+  scored_at,
   created_at,
   updated_at,
   lead_tags ( tags ( id, name, color ) )
@@ -363,11 +417,13 @@ function safeSearchTerm(value: string) {
 const LEAD_SORT_CONFIG: Record<
   LeadSortKey,
   {
-    column: "updated_at" | "created_at" | "next_action_at" | "name";
-    cursorKey: "updatedAt" | "createdAt" | "nextActionAt" | "name";
+    column: "updated_at" | "created_at" | "next_action_at" | "name" | "lead_score";
+    cursorKey: "updatedAt" | "createdAt" | "nextActionAt" | "name" | "leadScore";
     ascending: boolean;
   }
 > = {
+  score_desc: { column: "lead_score", cursorKey: "leadScore", ascending: false },
+  score_asc: { column: "lead_score", cursorKey: "leadScore", ascending: true },
   updated_desc: {
     column: "updated_at",
     cursorKey: "updatedAt",
@@ -397,7 +453,8 @@ const LEAD_SORT_CONFIG: Record<
   name_desc: { column: "name", cursorKey: "name", ascending: false },
 };
 
-function postgrestFilterValue(value: string) {
+function postgrestFilterValue(value: string | number) {
+  if (typeof value === "number") return String(value);
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
@@ -449,6 +506,15 @@ export async function getLeadsPage({
     if (filters.websiteStatus) {
       query = query.eq("website_status", filters.websiteStatus);
     }
+    if (filters.leadGrade && hasCrmColumns) {
+      query = query.eq("lead_grade", filters.leadGrade);
+    }
+    if (filters.scoreMin != null && hasCrmColumns) {
+      query = query.gte("lead_score", filters.scoreMin);
+    }
+    if (filters.scoreMax != null && hasCrmColumns) {
+      query = query.lte("lead_score", filters.scoreMax);
+    }
     if (filters.tagId) {
       query = query.eq("filtered_lead_tags.tag_id", filters.tagId);
     }
@@ -495,7 +561,11 @@ export async function getLeadsPage({
 
   let { data, error, count } = await runQuery(true);
   if (error?.code === "42703" || error?.code === "PGRST204") {
-    if (filters.nextAction || filters.actionTiming || sort.startsWith("follow_up")) {
+    if (
+      filters.nextAction || filters.actionTiming || filters.leadGrade ||
+      filters.scoreMin != null || filters.scoreMax != null ||
+      sort.startsWith("follow_up") || sort.startsWith("score")
+    ) {
       throw new Error(
         "Falta aplicar la migración del modelo de próximas acciones.",
         { cause: error }
@@ -529,6 +599,7 @@ export async function getLeadsPage({
             updatedAt: lastLead.updatedAt,
             followUpDate: lastLead.followUpDate,
             nextActionAt: lastLead.nextActionAt,
+            leadScore: lastLead.leadScore,
           }
         : null,
   };

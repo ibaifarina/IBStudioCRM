@@ -56,7 +56,11 @@ function validCursor(cursor: unknown): cursor is LeadCursor | null | undefined {
       "nextActionAt" in cursor &&
       (cursor.nextActionAt === null ||
         (typeof cursor.nextActionAt === "string" &&
-          !Number.isNaN(Date.parse(cursor.nextActionAt)))))
+          !Number.isNaN(Date.parse(cursor.nextActionAt)))) &&
+      "leadScore" in cursor &&
+      Number.isInteger(cursor.leadScore) &&
+      Number(cursor.leadScore) >= 0 &&
+      Number(cursor.leadScore) <= 100)
   );
 }
 
@@ -82,6 +86,21 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
     typeof values.websiteStatus !== "string"
   ) {
     return null;
+  }
+  if (
+    values.leadGrade != null &&
+    !["A", "B", "C", "D"].includes(String(values.leadGrade))
+  ) {
+    return null;
+  }
+  for (const key of ["scoreMin", "scoreMax"] as const) {
+    const value = values[key];
+    if (
+      value != null &&
+      (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 100)
+    ) {
+      return null;
+    }
   }
   const typedFilters = values as LeadFilters;
   if (typedFilters.status && !isValidStatus(typedFilters.status)) return null;
@@ -113,6 +132,9 @@ function sanitizeFilters(filters: unknown): LeadFilters | null {
     nextAction: typedFilters.nextAction,
     actionTiming: typedFilters.actionTiming,
     websiteStatus: typedFilters.websiteStatus,
+    leadGrade: typedFilters.leadGrade,
+    scoreMin: typedFilters.scoreMin,
+    scoreMax: typedFilters.scoreMax,
     tagId: typedFilters.tagId,
     createdFrom: typedFilters.createdFrom,
     createdTo: typedFilters.createdTo,

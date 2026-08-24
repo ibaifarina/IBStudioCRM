@@ -7,10 +7,12 @@ import {
   CheckIcon,
   CopyIcon,
   ExternalLinkIcon,
+  GaugeIcon,
   GlobeIcon,
   HistoryIcon,
   Loader2Icon,
   MapPinIcon,
+  MailIcon,
   MessageCircleIcon,
   MessageSquareTextIcon,
   MoreHorizontalIcon,
@@ -23,6 +25,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DateField } from "@/components/date-field";
+import { LeadScoreBadge } from "@/components/lead-score-badge";
 import { NextActionPicker } from "@/components/next-action-badge";
 import { StatusSelect } from "@/components/status-badge";
 import { TagBadge } from "@/components/tag-badge";
@@ -79,6 +82,8 @@ const TONES = {
   web: "#2563eb",
   phone: "#0d9488",
   whatsapp: "#16a34a",
+  email: "#7c3aed",
+  facebook: "#1877f2",
 } as const;
 
 function SectionLabel({
@@ -286,6 +291,12 @@ export function LeadDetailsModal({
           </div>
           <DialogDescription className="sr-only">Detalle del lead</DialogDescription>
           <div className="flex flex-wrap items-center gap-1.5 px-5 py-3.5">
+            <LeadScoreBadge
+              score={lead.leadScore}
+              grade={lead.leadGrade}
+              confidence={lead.scoreConfidence}
+              breakdown={lead.scoreBreakdown}
+            />
             <StatusSelect
               leadId={lead.id}
               status={lead.status}
@@ -309,6 +320,54 @@ export function LeadDetailsModal({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
+          <section>
+            <SectionLabel icon={GaugeIcon}>Lead Score</SectionLabel>
+            <div className="rounded-xl border bg-card p-3.5">
+              <div className="flex flex-wrap items-center gap-3">
+                <LeadScoreBadge
+                  score={lead.leadScore}
+                  grade={lead.leadGrade}
+                  confidence={lead.scoreConfidence}
+                  breakdown={lead.scoreBreakdown}
+                  className="min-w-20 py-1.5 text-sm"
+                />
+                <div>
+                  <p className="text-sm font-semibold">
+                    {lead.leadGrade === "A"
+                      ? "Excelente lead"
+                      : lead.leadGrade === "B"
+                        ? "Buen lead"
+                        : lead.leadGrade === "C"
+                          ? "Lead medio"
+                          : "Baja prioridad"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Confianza {lead.scoreConfidence}% · Fórmula v{lead.scoreVersion}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-x-5 gap-y-1.5 border-t pt-3 sm:grid-cols-2">
+                {[...lead.scoreBreakdown.details]
+                  .filter((detail) => detail.points !== 0)
+                  .sort((left, right) => Math.abs(right.points) - Math.abs(left.points))
+                  .slice(0, 8)
+                  .map((detail, index) => (
+                    <div key={`${detail.label}-${index}`} className="flex items-start gap-2 text-xs">
+                      <span className="min-w-0 flex-1 leading-5 text-muted-foreground">
+                        {detail.label}
+                      </span>
+                      <span className={cn(
+                        "shrink-0 font-semibold tabular-nums",
+                        detail.points < 0 ? "text-destructive" : "text-emerald-700 dark:text-emerald-400"
+                      )}>
+                        {detail.points > 0 ? "+" : ""}{detail.points}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </section>
+
           <section>
             <SectionLabel icon={CalendarClockIcon}>Próxima acción</SectionLabel>
             <div className={cn("rounded-xl border p-3.5", overdue ? "border-destructive/25 bg-destructive/[0.04]" : "bg-card")}>
@@ -348,6 +407,8 @@ export function LeadDetailsModal({
             <SectionLabel icon={AtSignIcon}>Contacto</SectionLabel>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <ChannelTile label="Instagram" icon={AtSignIcon} tone={TONES.instagram} href={lead.instagram ? instagramUrl(lead.instagram) : undefined} value={lead.instagram ? `@${lead.instagram}` : null} />
+              <ChannelTile label="Facebook" icon={AtSignIcon} tone={TONES.facebook} href={lead.facebook ?? undefined} value={lead.facebook} />
+              <ChannelTile label="Email" icon={MailIcon} tone={TONES.email} href={lead.email ? `mailto:${lead.email}` : undefined} value={lead.email} />
               <ChannelTile label="Web" icon={GlobeIcon} tone={TONES.web} href={lead.website ?? undefined} value={lead.website} />
               <ChannelTile label="Teléfono" icon={PhoneIcon} tone={TONES.phone} href={lead.phone ? `tel:${lead.phone}` : undefined} value={lead.phone} tel />
               <ChannelTile
