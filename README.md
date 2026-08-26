@@ -1,14 +1,10 @@
 # IB Studio CRM
 
-![Dashboard de IB Studio CRM](docs/images/ib-studio-crm/thumbnail.jpg)
+![Dashboard de IB Studio CRM](docs/images/ib-studio-crm/cover.webp)
 
 CRM full-stack para gestionar la prospección, captación y seguimiento de clientes, con dashboards, filtros, un mapa interactivo, autenticación y seguridad de datos por usuario.
 
 [Ver el proyecto en ibaifarina.dev](https://www.ibaifarina.dev/projects/ib-studio-crm?from=%2Fprojects)
-
-| Año | Rol | Stack | Etiquetas |
-| --- | --- | --- | --- |
-| 2026 | Developer & Designer | Next.js · TypeScript · Supabase · PostgreSQL | Full-stack · CRM · SaaS |
 
 ## Sobre el proyecto
 
